@@ -1,0 +1,38 @@
+/piper_calibration:
+  ros__parameters:
+    # --- Calibration mode ---
+    eye_mode: "eye_in_hand"       # "eye_in_hand" or "eye_to_hand"
+    method: "park"                # tsai / park / horaund / andreff / daniilidis
+    num_poses: 15                 # number of calibration poses to collect
+
+    # --- Robot ---
+    move_group_name: "piper_arm"
+    end_effector_link: "link6"
+    base_frame: "base_link"
+
+    # --- Camera ---
+    # sim mode: use Gazebo camera topic
+    # real mode: use RealSense camera topic
+    camera_topic: "/wrist_camera/image_raw"
+    camera_info_topic: "/wrist_camera/camera_info"
+    camera_frame: "wrist_cam_link"
+
+    # --- Calibration board (ChArUco) ---
+    board_type: "charuco"         # charuco / chessboard / aruco
+    # ChArUco params
+    charuco_rows: 9
+    charuco_cols: 14
+    charuco_square_length: 0.03   # meters
+    charuco_marker_length: 0.022  # meters
+    aruco_dict: "DICT_5X5_100"
+    # Chessboard params (fallback)
+    chessboard_rows: 10
+    chessboard_cols: 12
+
+    # --- Output ---
+    output_frame: "camera_optical_frame"
+    result_file: "eye_in_hand_result.yaml"
+
+    # --- Pose generation ---
+    seed_joints: [0.0, 1.57, -1.3485, 0.0, 0.0, 0.0]
+    noise_per_joint: [0.05, 0.08, 0.08, 0.10, 0.05, 0.10]

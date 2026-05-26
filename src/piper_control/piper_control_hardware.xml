@@ -1,0 +1,13 @@
+<library path="piper_hardware">
+  <class name="piper_control/PiperHardware"
+         type="piper_control::PiperHardware"
+         base_class_type="hardware_interface::SystemInterface">
+    <description>
+      CAN bus hardware interface for the Piper robotic arm.
+      Communicates via SocketCAN (linux/can.h) to read joint states and write
+      position commands. Supports 6 revolute arm joints and 1 prismatic gripper
+      joint. Joint8 (right finger) is configured as a mimic of joint7 in the
+      URDF and is not directly controlled.
+    </description>
+  </class>
+</library>
