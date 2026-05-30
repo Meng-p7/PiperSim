@@ -18,7 +18,7 @@
     </visual>
     <collision>
       <geometry>
-        <mesh filename="package://piper_description/meshes/base_link.stl"/>
+        <cylinder length="0.05" radius="0.06"/>
       </geometry>
     </collision>
   </link>
@@ -39,7 +39,7 @@
     </visual>
     <collision>
       <geometry>
-        <mesh filename="package://piper_description/meshes/link1.stl"/>
+        <cylinder length="0.12" radius="0.035"/>
       </geometry>
     </collision>
   </link>
@@ -69,7 +69,7 @@
     </visual>
     <collision>
       <geometry>
-        <mesh filename="package://piper_description/meshes/link2.stl"/>
+        <cylinder length="0.28" radius="0.03"/>
       </geometry>
     </collision>
   </link>
@@ -99,7 +99,7 @@
     </visual>
     <collision>
       <geometry>
-        <mesh filename="package://piper_description/meshes/link3.stl"/>
+        <cylinder length="0.24" radius="0.025"/>
       </geometry>
     </collision>
   </link>
@@ -129,7 +129,7 @@
     </visual>
     <collision>
       <geometry>
-        <mesh filename="package://piper_description/meshes/link4.stl"/>
+        <cylinder length="0.1" radius="0.025"/>
       </geometry>
     </collision>
   </link>
@@ -159,7 +159,7 @@
     </visual>
     <collision>
       <geometry>
-        <mesh filename="package://piper_description/meshes/link5.stl"/>
+        <cylinder length="0.09" radius="0.02"/>
       </geometry>
     </collision>
   </link>
@@ -189,7 +189,7 @@
     </visual>
     <collision>
       <geometry>
-        <mesh filename="package://piper_description/meshes/link6.stl"/>
+        <cylinder length="0.06" radius="0.035"/>
       </geometry>
     </collision>
   </link>
@@ -212,6 +212,11 @@
         <color rgba="0.15 0.15 0.15 1"/>
       </material>
     </visual>
+    <collision>
+      <geometry>
+        <box size="0.028 0.034 0.024"/>
+      </geometry>
+    </collision>
   </link>
 
   <joint name="wrist_cam_joint" type="fixed">
@@ -236,7 +241,7 @@
     </visual>
     <collision>
       <geometry>
-        <mesh filename="package://piper_description/meshes/link7.stl"/>
+        <box size="0.02 0.04 0.02"/>
       </geometry>
     </collision>
   </link>
@@ -266,7 +271,7 @@
     </visual>
     <collision>
       <geometry>
-        <mesh filename="package://piper_description/meshes/link8.stl"/>
+        <box size="0.02 0.04 0.02"/>
       </geometry>
     </collision>
   </link>
@@ -281,11 +286,10 @@
     <mimic joint="joint7" multiplier="-1" offset="0"/>
   </joint>
 
-  <!-- ==================== ros2_control ==================== -->
-  <ros2_control name="PiperReal" type="system">
+  <!-- ==================== ros2_control (Gazebo) ==================== -->
+  <ros2_control name="PiperGazebo" type="system">
     <hardware>
-      <plugin>piper_control/PiperHardware</plugin>
-      <param name="can_interface">can0</param>
+      <plugin>gazebo_ros2_control/GazeboSystem</plugin>
     </hardware>
     <joint name="joint1">
       <command_interface name="position"/>
@@ -319,5 +323,12 @@
       <state_interface name="position"/>
     </joint>
   </ros2_control>
+
+  <!-- ==================== Gazebo Plugins ==================== -->
+  <gazebo>
+    <plugin filename="libgazebo_ros2_control.so" name="gazebo_ros2_control">
+      <parameters>__GAZEBO_CONTROLLERS_YAML__</parameters>
+    </plugin>
+  </gazebo>
 
 </robot>

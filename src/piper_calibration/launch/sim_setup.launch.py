@@ -1,16 +1,16 @@
 import os
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, ExecuteProcess
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
 
 
 def generate_launch_description():
     piper_desc_dir = get_package_share_directory("piper_description")
-    piper_ctrl_dir = get_package_share_directory("piper_control")
 
-    urdf_path = os.path.join(piper_desc_dir, "urdf", "piper.urdf")
-    controllers_yaml = os.path.join(piper_ctrl_dir, "config", "piper_controllers.yaml")
+    # 使用 Gazebo 专用 URDF（碰撞用简单几何体，避免插件崩溃）
+    urdf_path = os.path.join(piper_desc_dir, "urdf", "piper_gazebo.urdf")
 
     with open(urdf_path, "r") as f:
         robot_desc = f.read()
@@ -46,36 +46,7 @@ def generate_launch_description():
             arguments=[
                 "-entity", "piper",
                 "-file", urdf_path,
-                "-x", "0", "-y", "0", "-z", "0.1",
+                "-x", "0", "-y", "0", "-z", "0.01",
             ],
-        ),
-
-        # ros2_control controller manager
-        Node(
-            package="controller_manager",
-            executable="ros2_control_node",
-            name="controller_manager",
-            output="screen",
-            parameters=[
-                {"robot_description": robot_desc},
-                controllers_yaml,
-                {"use_sim_time": True},
-            ],
-        ),
-
-        # joint_state_broadcaster
-        Node(
-            package="controller_manager",
-            executable="spawner",
-            arguments=["joint_state_broadcaster", "--controller-manager", "/controller_manager"],
-            output="screen",
-        ),
-
-        # forward_position_controller
-        Node(
-            package="controller_manager",
-            executable="spawner",
-            arguments=["forward_position_controller", "--controller-manager", "/controller_manager"],
-            output="screen",
         ),
     ])

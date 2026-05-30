@@ -282,41 +282,56 @@
   </joint>
 
   <!-- ==================== ros2_control ==================== -->
-  <ros2_control name="PiperReal" type="system">
+  <ros2_control name="PiperFake" type="system">
     <hardware>
-      <plugin>piper_control/PiperHardware</plugin>
-      <param name="can_interface">can0</param>
+      <plugin>fake_components/GenericSystem</plugin>
     </hardware>
     <joint name="joint1">
       <command_interface name="position"/>
-      <state_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
     </joint>
     <joint name="joint2">
       <command_interface name="position"/>
-      <state_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">1.57</param>
+      </state_interface>
     </joint>
     <joint name="joint3">
       <command_interface name="position"/>
-      <state_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">-1.3485</param>
+      </state_interface>
     </joint>
     <joint name="joint4">
       <command_interface name="position"/>
-      <state_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
     </joint>
     <joint name="joint5">
       <command_interface name="position"/>
-      <state_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
     </joint>
     <joint name="joint6">
       <command_interface name="position"/>
-      <state_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
     </joint>
     <joint name="joint7">
       <command_interface name="position"/>
-      <state_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
     </joint>
     <joint name="joint8">
-      <state_interface name="position"/>
+      <state_interface name="position">
+        <param name="initial_value">0.0</param>
+      </state_interface>
     </joint>
   </ros2_control>
 
