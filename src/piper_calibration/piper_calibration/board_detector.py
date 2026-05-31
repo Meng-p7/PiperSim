@@ -53,7 +53,7 @@ class BoardDetector:
         return None
 
     def _detect_charuco(self, image: np.ndarray, K: np.ndarray, D: np.ndarray) -> Optional[np.ndarray]:
-        gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
         marker_corners, marker_ids, _ = aruco.detectMarkers(gray, self.aruco_dict)
         if marker_ids is None or len(marker_ids) < 4:
@@ -77,7 +77,7 @@ class BoardDetector:
         return T_cam_board
 
     def _detect_chessboard(self, image: np.ndarray, K: np.ndarray, D: np.ndarray) -> Optional[np.ndarray]:
-        gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         pattern = (self.chessboard_cols, self.chessboard_rows)
         flags = (
             cv2.CALIB_CB_ADAPTIVE_THRESH
@@ -105,7 +105,7 @@ class BoardDetector:
         return T_cam_board
 
     def draw_detection(self, image: np.ndarray, camera_matrix: np.ndarray, dist_coeffs: np.ndarray) -> np.ndarray:
-        gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         marker_corners, marker_ids, _ = aruco.detectMarkers(gray, self.aruco_dict)
         result = image.copy()
         if marker_ids is not None and len(marker_ids) > 0:

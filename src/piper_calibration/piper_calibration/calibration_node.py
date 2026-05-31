@@ -320,6 +320,7 @@ class CalibrationNode(Node):
         # --- Phase 1: interactive capture ---
         collected_images: list[str] = []
         collected_joints: list[list[float]] = []
+        collected_ee_poses: list[np.ndarray] = []
         window_name = "Calibration Capture [Space=save, Q/Esc=quit]"
         cv2.namedWindow(window_name, cv2.WINDOW_AUTOSIZE)
 
@@ -364,6 +365,10 @@ class CalibrationNode(Node):
                         f"Sample {count}: no joint data, using zeros")
                 collected_joints.append(joints)
 
+                # cache EE pose NOW (while robot is still in this pose)
+                T_ee = self._get_current_ee_pose()
+                collected_ee_poses.append(T_ee)
+
                 self.get_logger().info(
                     f"Sample {count + 1}/{self.num_poses} saved: "
                     f"{filename}  joints={[f'{j:.4f}' for j in joints]}")
@@ -386,8 +391,8 @@ class CalibrationNode(Node):
             f"Processing {len(collected_images)} captured images...")
 
         valid = 0
-        for i, (img_path, joints) in enumerate(
-                zip(collected_images, collected_joints)):
+        for i, (img_path, T_ee) in enumerate(
+                zip(collected_images, collected_ee_poses)):
             img = cv2.imread(img_path)
             T_cam_board = self._detector.detect(
                 img, self._camera_matrix, self._dist_coeffs)
@@ -397,9 +402,7 @@ class CalibrationNode(Node):
                     f"Image {i}: board NOT detected, skipping")
                 continue
 
-            # compute EE pose from joint positions via TF
-            T_robot = self._get_current_ee_pose()
-            self._calibrator.add_sample(T_robot, T_cam_board)
+            self._calibrator.add_sample(T_ee, T_cam_board)
             valid += 1
             self.get_logger().info(
                 f"Image {i}: board detected, sample added ({valid} valid)")

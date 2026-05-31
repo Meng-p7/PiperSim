@@ -47,7 +47,7 @@ ament_python_install_package(${PROJECT_NAME}
 install(FILES piper_control_hardware.xml
   DESTINATION share/${PROJECT_NAME}
 )
-install(DIRECTORY config launch
+install(DIRECTORY config launch scripts
   DESTINATION share/${PROJECT_NAME}
 )
 install(FILES resource/${PROJECT_NAME}

@@ -1,12 +1,24 @@
 // Copyright 2024 Piper Robot
 // SocketCAN hardware interface for the Piper 6-DOF arm + gripper.
 //
-// Protocol summary (extend/adjust IDs and frame layout to match your firmware):
-//   MotionCtrl : ID=0x010, 8 bytes  – sets control mode (position, speed=100)
-//   JointCmd   : ID=0x101..0x103, each frame carries 2 x int32_t (big-endian, 0.001-deg)
-//   GripCmd    : ID=0x105, 8 bytes  – position(um), speed, mode, ack
-//   JointState : ID=0x201..0x203, same layout as JointCmd
-//   GripState  : ID=0x205, 8 bytes
+// Protocol: Piper SDK V2 (Agilex official)
+//
+// Control flow:
+//   on_activate:
+//     1. Send enable command (ID 0x471) — enable all 7 motors
+//     2. Send MotionCtrl_2 (ID 0x151) — set CAN control + MOVEJ mode
+//
+//   read() — drain all pending CAN frames:
+//     ID 0x2A5: joint 1-2 feedback (int32, big-endian, unit 0.001°)
+//     ID 0x2A6: joint 3-4 feedback
+//     ID 0x2A7: joint 5-6 feedback
+//     ID 0x2A8: gripper feedback (int32 angle in 0.001mm, int16 effort, uint8 status)
+//
+//   write():
+//     ID 0x155: joint 1-2 command (int32, big-endian, unit 0.001°)
+//     ID 0x156: joint 3-4 command
+//     ID 0x157: joint 5-6 command
+//     ID 0x159: gripper command (int32 angle in 0.001mm, uint16 effort, uint8 code, uint8 zero)
 
 #include "piper_control/piper_hardware.hpp"
 
@@ -46,7 +58,6 @@ hardware_interface::CallbackReturn PiperHardware::on_init(
     return hardware_interface::CallbackReturn::ERROR;
   }
 
-  // Read CAN interface name from <param> inside <hardware>
   can_iface_ = "can0";
   if (info.hardware_parameters.count("can_interface"))
   {
@@ -89,22 +100,42 @@ hardware_interface::CallbackReturn PiperHardware::on_cleanup(
 hardware_interface::CallbackReturn PiperHardware::on_activate(
   const rclcpp_lifecycle::State & /*previous_state*/)
 {
-  if (!cmd_enable())
+  // Step 1: Enable all motors (ID 0x471)
+  if (!cmd_enable_motors())
   {
     RCLCPP_ERROR(rclcpp::get_logger("PiperHardware"),
-                 "Failed to enable Piper arm");
+                 "Failed to enable motors");
     return hardware_interface::CallbackReturn::ERROR;
   }
-  RCLCPP_INFO(rclcpp::get_logger("PiperHardware"), "Piper arm enabled");
+  RCLCPP_INFO(rclcpp::get_logger("PiperHardware"), "Motors enabled");
+
+  // Step 2: Set motion mode — CAN control + MOVEJ (ID 0x151)
+  if (!cmd_set_motion_mode())
+  {
+    RCLCPP_ERROR(rclcpp::get_logger("PiperHardware"),
+                 "Failed to set motion mode");
+    return hardware_interface::CallbackReturn::ERROR;
+  }
+  RCLCPP_INFO(rclcpp::get_logger("PiperHardware"),
+              "Motion mode set: CAN ctrl + MOVEJ, speed=100%%");
+
+  // Initialize command with current positions (read a few frames first)
+  for (int i = 0; i < 10; ++i)
+  {
+    drain_can_rx();
+    usleep(5000);
+  }
+  std::copy(hw_pos_.begin(), hw_pos_.end(), hw_cmd_.begin());
+
   return hardware_interface::CallbackReturn::SUCCESS;
 }
 
 hardware_interface::CallbackReturn PiperHardware::on_deactivate(
   const rclcpp_lifecycle::State & /*previous_state*/)
 {
-  cmd_disable();
+  cmd_disable_motors();
   std::fill(hw_cmd_.begin(), hw_cmd_.end(), 0.0);
-  RCLCPP_INFO(rclcpp::get_logger("PiperHardware"), "Piper arm disabled");
+  RCLCPP_INFO(rclcpp::get_logger("PiperHardware"), "Motors disabled");
   return hardware_interface::CallbackReturn::SUCCESS;
 }
 
@@ -145,31 +176,33 @@ PiperHardware::export_command_interfaces()
 }
 
 // ---------------------------------------------------------------------------
-// Read / Write  (called every control cycle by the controller manager)
+// Read / Write
 // ---------------------------------------------------------------------------
 
 hardware_interface::return_type PiperHardware::read(
   const rclcpp::Time & /*time*/, const rclcpp::Duration & /*period*/)
 {
-  if (!cmd_read_joint_positions())
-  {
-    RCLCPP_WARN_THROTTLE(
-      rclcpp::get_logger("PiperHardware"),
-      *rclcpp::Clock::make_shared(), 5000,
-      "CAN read failed – keeping last known positions");
-  }
+  drain_can_rx();
   return hardware_interface::return_type::OK;
 }
 
 hardware_interface::return_type PiperHardware::write(
   const rclcpp::Time & /*time*/, const rclcpp::Duration & /*period*/)
 {
-  if (!cmd_write_joint_positions() || !cmd_write_gripper())
+  if (!cmd_write_joint_positions())
   {
     RCLCPP_WARN_THROTTLE(
       rclcpp::get_logger("PiperHardware"),
       *rclcpp::Clock::make_shared(), 5000,
-      "CAN write failed");
+      "CAN joint write failed");
+    return hardware_interface::return_type::ERROR;
+  }
+  if (!cmd_write_gripper())
+  {
+    RCLCPP_WARN_THROTTLE(
+      rclcpp::get_logger("PiperHardware"),
+      *rclcpp::Clock::make_shared(), 5000,
+      "CAN gripper write failed");
     return hardware_interface::return_type::ERROR;
   }
   return hardware_interface::return_type::OK;
@@ -211,10 +244,10 @@ bool PiperHardware::open_can(const std::string & iface)
     return false;
   }
 
-  // Set receive timeout so recv() does not block indefinitely
+  // Set receive timeout
   struct timeval tv {};
   tv.tv_sec = 0;
-  tv.tv_usec = 10000;  // 10 ms default
+  tv.tv_usec = 10000;  // 10 ms
   setsockopt(can_fd_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
   return true;
@@ -247,8 +280,7 @@ bool PiperHardware::send_can_frame(uint32_t id, const uint8_t * data, uint8_t le
 bool PiperHardware::recv_can_frame(
   uint32_t expected_id, uint8_t * data, uint8_t * out_len, double timeout_s)
 {
-  // Use select() to wait for data WITHOUT holding the mutex,
-  // so concurrent send_can_frame() calls are not blocked.
+  // Wait for data with select() WITHOUT holding the mutex
   {
     fd_set rfds;
     FD_ZERO(&rfds);
@@ -265,10 +297,10 @@ bool PiperHardware::recv_can_frame(
     tv.tv_usec = static_cast<long>((timeout_s - tv.tv_sec) * 1e6);
 
     int ret = select(fd + 1, &rfds, nullptr, nullptr, &tv);
-    if (ret <= 0) return false;  // timeout or error
+    if (ret <= 0) return false;
   }
 
-  // Data is ready – read under lock (fast, non-blocking now)
+  // Read under lock
   std::lock_guard<std::mutex> lk(can_mtx_);
   if (can_fd_ < 0) return false;
 
@@ -282,105 +314,127 @@ bool PiperHardware::recv_can_frame(
   return true;
 }
 
+void PiperHardware::drain_can_rx()
+{
+  // Read all pending CAN frames and update joint/gripper state.
+  // The arm pushes feedback continuously (~200Hz for joints).
+  while (true)
+  {
+    // Non-blocking select
+    fd_set rfds;
+    FD_ZERO(&rfds);
+    int fd;
+    {
+      std::lock_guard<std::mutex> lk(can_mtx_);
+      fd = can_fd_;
+    }
+    if (fd < 0) return;
+
+    FD_SET(fd, &rfds);
+    struct timeval tv {};
+    tv.tv_sec = 0;
+    tv.tv_usec = 0;  // non-blocking
+
+    int ret = select(fd + 1, &rfds, nullptr, nullptr, &tv);
+    if (ret <= 0) return;
+
+    struct can_frame frame {};
+    {
+      std::lock_guard<std::mutex> lk(can_mtx_);
+      if (can_fd_ < 0) return;
+      ssize_t n = ::read(can_fd_, &frame, sizeof(frame));
+      if (n < static_cast<ssize_t>(sizeof(frame))) return;
+    }
+
+    // Decode feedback based on CAN ID (Piper SDK V2 protocol)
+    uint32_t id = frame.can_id;
+    const uint8_t * d = frame.data;
+
+    if (id == ID_JOINT_FB_12 && frame.can_dlc >= 8)
+    {
+      // Joint 1-2: two big-endian int32, unit 0.001°
+      int32_t j1_raw, j2_raw;
+      std::memcpy(&j1_raw, d, 4);
+      std::memcpy(&j2_raw, d + 4, 4);
+      j1_raw = static_cast<int32_t>(ntohl(static_cast<uint32_t>(j1_raw)));
+      j2_raw = static_cast<int32_t>(ntohl(static_cast<uint32_t>(j2_raw)));
+      hw_pos_[0] = static_cast<double>(j1_raw) / RAD_TO_MDEG;
+      hw_pos_[1] = static_cast<double>(j2_raw) / RAD_TO_MDEG;
+    }
+    else if (id == ID_JOINT_FB_34 && frame.can_dlc >= 8)
+    {
+      int32_t j3_raw, j4_raw;
+      std::memcpy(&j3_raw, d, 4);
+      std::memcpy(&j4_raw, d + 4, 4);
+      j3_raw = static_cast<int32_t>(ntohl(static_cast<uint32_t>(j3_raw)));
+      j4_raw = static_cast<int32_t>(ntohl(static_cast<uint32_t>(j4_raw)));
+      hw_pos_[2] = static_cast<double>(j3_raw) / RAD_TO_MDEG;
+      hw_pos_[3] = static_cast<double>(j4_raw) / RAD_TO_MDEG;
+    }
+    else if (id == ID_JOINT_FB_56 && frame.can_dlc >= 8)
+    {
+      int32_t j5_raw, j6_raw;
+      std::memcpy(&j5_raw, d, 4);
+      std::memcpy(&j6_raw, d + 4, 4);
+      j5_raw = static_cast<int32_t>(ntohl(static_cast<uint32_t>(j5_raw)));
+      j6_raw = static_cast<int32_t>(ntohl(static_cast<uint32_t>(j6_raw)));
+      hw_pos_[4] = static_cast<double>(j5_raw) / RAD_TO_MDEG;
+      hw_pos_[5] = static_cast<double>(j6_raw) / RAD_TO_MDEG;
+    }
+    else if (id == ID_GRIP_FB && frame.can_dlc >= 7)
+    {
+      // Gripper: int32 angle (0.001mm) + int16 effort + uint8 status
+      int32_t grip_raw;
+      std::memcpy(&grip_raw, d, 4);
+      grip_raw = static_cast<int32_t>(ntohl(static_cast<uint32_t>(grip_raw)));
+      hw_pos_[6] = static_cast<double>(grip_raw) / METER_TO_UMM;
+    }
+    // All other IDs (0x2A1 status, 0x2A2-2A4 end pose, 0x251-256 high-speed,
+    // 0x261-266 low-speed, 0x473/476/478 config feedback, etc.) are silently discarded.
+  }
+}
+
 // ---------------------------------------------------------------------------
-// Piper CAN protocol
+// Piper SDK V2 protocol
 // ---------------------------------------------------------------------------
 
-bool PiperHardware::cmd_enable()
+bool PiperHardware::cmd_enable_motors()
 {
-  if (!cmd_set_mode()) return false;
-
-  // Send enable command: ID=0x010, byte0=0x01 (enable)
-  uint8_t data[8] = {0x01, 0, 0, 0, 0, 0, 0, 0};
-  if (!send_can_frame(ID_MOTION_CTRL, data, 8)) return false;
-
-  // Wait for ACK
-  uint8_t rx[8];
-  uint8_t rx_len = 0;
-  return recv_can_frame(ID_MOTION_CTRL, rx, &rx_len, 2.0);
+  // ID 0x471: Motor Enable/Disable
+  // Byte 0: motor_num (7 = all motors including gripper, 0xFF = all joints + gripper)
+  // Byte 1: enable_flag (0x01 = disable, 0x02 = enable)
+  uint8_t data[8] = {0x07, 0x02, 0, 0, 0, 0, 0, 0};  // enable all 7 motors
+  return send_can_frame(ID_MOTOR_ENABLE, data, 8);
 }
 
-bool PiperHardware::cmd_disable()
+bool PiperHardware::cmd_disable_motors()
 {
-  uint8_t data[8] = {0x00, 0, 0, 0, 0, 0, 0, 0};  // disable
-  return send_can_frame(ID_MOTION_CTRL, data, 8);
+  uint8_t data[8] = {0x07, 0x01, 0, 0, 0, 0, 0, 0};  // disable all 7 motors
+  return send_can_frame(ID_MOTOR_ENABLE, data, 8);
 }
 
-bool PiperHardware::cmd_set_mode()
+bool PiperHardware::cmd_set_motion_mode()
 {
-  // Set position control mode, speed=100, no ACK request
-  // Layout: [mode(1), sub_mode(1), speed(1), ack(1), 0, 0, 0, 0]
-  uint8_t data[8] = {0x01, 0x01, 100, 0x00, 0, 0, 0, 0};
-  return send_can_frame(ID_MOTION_CTRL, data, 8);
-}
-
-bool PiperHardware::cmd_read_joint_positions()
-{
-  // Request joint state (poll mode)
-  uint8_t req[8] = {0x01, 0, 0, 0, 0, 0, 0, 0};
-  if (!send_can_frame(0x000, req, 1)) return false;
-
-  // Receive 3 state frames: joints 1-2, 3-4, 5-6
-  // Use tight 10ms timeouts so the control loop stays within 20ms budget
-  constexpr double RECV_TIMEOUT = 0.01;
-  uint8_t buf[8];
-  uint8_t len = 0;
-
-  // Frame 1: joints 1 & 2
-  if (!recv_can_frame(ID_JOINT_STATE_1, buf, &len, RECV_TIMEOUT)) return false;
-  {
-    int32_t j1_raw, j2_raw;
-    std::memcpy(&j1_raw, buf, 4);
-    std::memcpy(&j2_raw, buf + 4, 4);
-    // Big-endian -> host byte order
-    j1_raw = static_cast<int32_t>(ntohl(static_cast<uint32_t>(j1_raw)));
-    j2_raw = static_cast<int32_t>(ntohl(static_cast<uint32_t>(j2_raw)));
-    hw_pos_[0] = static_cast<double>(j1_raw) / CAN_FACTOR;
-    hw_pos_[1] = static_cast<double>(j2_raw) / CAN_FACTOR;
-  }
-
-  // Frame 2: joints 3 & 4
-  if (!recv_can_frame(ID_JOINT_STATE_2, buf, &len, RECV_TIMEOUT)) return false;
-  {
-    int32_t j3_raw, j4_raw;
-    std::memcpy(&j3_raw, buf, 4);
-    std::memcpy(&j4_raw, buf + 4, 4);
-    j3_raw = static_cast<int32_t>(ntohl(static_cast<uint32_t>(j3_raw)));
-    j4_raw = static_cast<int32_t>(ntohl(static_cast<uint32_t>(j4_raw)));
-    hw_pos_[2] = static_cast<double>(j3_raw) / CAN_FACTOR;
-    hw_pos_[3] = static_cast<double>(j4_raw) / CAN_FACTOR;
-  }
-
-  // Frame 3: joints 5 & 6
-  if (!recv_can_frame(ID_JOINT_STATE_3, buf, &len, RECV_TIMEOUT)) return false;
-  {
-    int32_t j5_raw, j6_raw;
-    std::memcpy(&j5_raw, buf, 4);
-    std::memcpy(&j6_raw, buf + 4, 4);
-    j5_raw = static_cast<int32_t>(ntohl(static_cast<uint32_t>(j5_raw)));
-    j6_raw = static_cast<int32_t>(ntohl(static_cast<uint32_t>(j6_raw)));
-    hw_pos_[4] = static_cast<double>(j5_raw) / CAN_FACTOR;
-    hw_pos_[5] = static_cast<double>(j6_raw) / CAN_FACTOR;
-  }
-
-  // Frame 4: gripper state
-  if (!recv_can_frame(ID_GRIP_STATE, buf, &len, RECV_TIMEOUT)) return false;
-  {
-    uint32_t grip_raw;
-    std::memcpy(&grip_raw, buf, 4);
-    grip_raw = ntohl(grip_raw);
-    hw_pos_[6] = static_cast<double>(grip_raw) / GRIP_FACTOR;
-  }
-
-  return true;
+  // ID 0x151: MotionCtrl_2
+  // Byte 0: ctrl_mode        0x01 = CAN command control
+  // Byte 1: move_mode        0x01 = MOVEJ (joint space)
+  // Byte 2: move_spd_rate    100  = 100% speed
+  // Byte 3: is_mit_mode      0x00 = position-velocity mode
+  // Byte 4: residence_time   0x00
+  // Byte 5: installation_pos 0x00 = default
+  // Byte 6-7: reserved       0x00
+  uint8_t data[8] = {0x01, 0x01, 100, 0x00, 0x00, 0x00, 0x00, 0x00};
+  return send_can_frame(ID_MOTION_CTRL_2, data, 8);
 }
 
 bool PiperHardware::cmd_write_joint_positions()
 {
+  // ID 0x155/0x156/0x157: Joint command pairs
+  // Each frame: two big-endian int32, unit 0.001°
   auto encode_pair = [](double v1, double v2, uint8_t * out)
   {
-    auto c1 = static_cast<int32_t>(std::round(v1 * CAN_FACTOR));
-    auto c2 = static_cast<int32_t>(std::round(v2 * CAN_FACTOR));
+    auto c1 = static_cast<int32_t>(std::round(v1 * RAD_TO_MDEG));
+    auto c2 = static_cast<int32_t>(std::round(v2 * RAD_TO_MDEG));
     uint32_t be1 = htonl(static_cast<uint32_t>(c1));
     uint32_t be2 = htonl(static_cast<uint32_t>(c2));
     std::memcpy(out, &be1, 4);
@@ -389,44 +443,41 @@ bool PiperHardware::cmd_write_joint_positions()
 
   uint8_t data[8];
 
-  // Frame 1: joints 1 & 2
+  // Joints 1 & 2 → ID 0x155
   encode_pair(hw_cmd_[0], hw_cmd_[1], data);
-  if (!send_can_frame(ID_JOINT_CMD_1, data, 8)) return false;
+  if (!send_can_frame(ID_JOINT_CMD_12, data, 8)) return false;
 
-  // Frame 2: joints 3 & 4
+  // Joints 3 & 4 → ID 0x156
   encode_pair(hw_cmd_[2], hw_cmd_[3], data);
-  if (!send_can_frame(ID_JOINT_CMD_2, data, 8)) return false;
+  if (!send_can_frame(ID_JOINT_CMD_34, data, 8)) return false;
 
-  // Frame 3: joints 5 & 6
+  // Joints 5 & 6 → ID 0x157
   encode_pair(hw_cmd_[4], hw_cmd_[5], data);
-  if (!send_can_frame(ID_JOINT_CMD_3, data, 8)) return false;
+  if (!send_can_frame(ID_JOINT_CMD_56, data, 8)) return false;
 
   return true;
 }
 
 bool PiperHardware::cmd_write_gripper()
 {
-  auto pos_raw = static_cast<uint32_t>(
-    std::round(std::abs(hw_cmd_[6]) * GRIP_FACTOR));
+  // ID 0x159: Gripper command
+  // Byte 0-3: int32 big-endian, gripper angle in 0.001mm
+  // Byte 4-5: uint16 big-endian, effort in 0.001N/m (0-5000)
+  // Byte 6:   uint8, status code (0x01 = enable)
+  // Byte 7:   uint8, set_zero (0x00 = no action)
+  auto pos_raw = static_cast<int32_t>(
+    std::round(std::abs(hw_cmd_[6]) * METER_TO_UMM));
 
   uint8_t data[8] = {};
-  uint32_t be = htonl(pos_raw);
+  uint32_t be = htonl(static_cast<uint32_t>(pos_raw));
   std::memcpy(data, &be, 4);
-  // bytes 4-5: speed (1000 = 100%), bytes 6-7: mode + ack
+  // Effort = 1000 (1.0 N/m), big-endian
   data[4] = 0x03;
-  data[5] = 0xE8;  // 1000 big-endian low byte
-  data[6] = 0x01;  // mode
+  data[5] = 0xE8;  // 1000 = 0x03E8
+  data[6] = 0x01;  // enable gripper
+  data[7] = 0x00;  // no zero-set
 
   return send_can_frame(ID_GRIP_CMD, data, 8);
-}
-
-void PiperHardware::log_joint_state()
-{
-  RCLCPP_INFO(rclcpp::get_logger("PiperHardware"),
-              "joints: [%.4f, %.4f, %.4f, %.4f, %.4f, %.4f] grip: %.4f",
-              hw_pos_[0], hw_pos_[1], hw_pos_[2],
-              hw_pos_[3], hw_pos_[4], hw_pos_[5],
-              hw_pos_[6]);
 }
 
 }  // namespace piper_control

@@ -1,6 +1,6 @@
 import os
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, TimerAction
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
@@ -9,9 +9,10 @@ from ament_index_python.packages import get_package_share_directory
 def generate_launch_description():
     piper_desc_dir = get_package_share_directory("piper_description")
     piper_ctrl_dir = get_package_share_directory("piper_control")
+    piper_moveit_dir = get_package_share_directory("piper_moveit_config")
 
     urdf_path = os.path.join(piper_desc_dir, "urdf", "piper.urdf")
-    rviz_path = os.path.join(piper_desc_dir, "rviz", "piper.rviz")
+    rviz_path = os.path.join(piper_moveit_dir, "rviz", "moveit.rviz")
     controllers_yaml = os.path.join(piper_ctrl_dir, "config", "piper_controllers.yaml")
 
     with open(urdf_path, "r") as f:
@@ -41,20 +42,29 @@ def generate_launch_description():
             ],
         ),
 
-        # joint_state_broadcaster (spawner retries until controller_manager is ready)
-        Node(
-            package="controller_manager",
-            executable="spawner",
-            arguments=["joint_state_broadcaster", "--controller-manager", "/controller_manager"],
-            output="screen",
-        ),
-
-        # forward_position_controller
-        Node(
-            package="controller_manager",
-            executable="spawner",
-            arguments=["forward_position_controller", "--controller-manager", "/controller_manager"],
-            output="screen",
+        # Delay spawners to wait for controller_manager to be ready
+        TimerAction(
+            period=3.0,
+            actions=[
+                Node(
+                    package="controller_manager",
+                    executable="spawner",
+                    arguments=["joint_state_broadcaster", "--controller-manager", "/controller_manager"],
+                    output="screen",
+                ),
+                Node(
+                    package="controller_manager",
+                    executable="spawner",
+                    arguments=["piper_arm_controller", "--controller-manager", "/controller_manager"],
+                    output="screen",
+                ),
+                Node(
+                    package="controller_manager",
+                    executable="spawner",
+                    arguments=["piper_gripper_controller", "--controller-manager", "/controller_manager"],
+                    output="screen",
+                ),
+            ],
         ),
 
         # RViz2

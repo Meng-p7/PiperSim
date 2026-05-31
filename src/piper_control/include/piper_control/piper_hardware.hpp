@@ -1,6 +1,7 @@
 // Copyright 2024 Piper Robot
 // CAN bus hardware interface for ros2_control.
 // Uses SocketCAN (linux/can.h) to communicate with the Piper arm controller.
+// Protocol matches piper_sdk V2 (Agilex official SDK).
 
 #ifndef PIPER_CONTROL__PIPER_HARDWARE_HPP_
 #define PIPER_CONTROL__PIPER_HARDWARE_HPP_
@@ -56,44 +57,53 @@ private:
   void close_can();
   bool send_can_frame(uint32_t id, const uint8_t * data, uint8_t len);
   bool recv_can_frame(uint32_t expected_id, uint8_t * data,
-                      uint8_t * out_len, double timeout_s = 0.1);
+                      uint8_t * out_len, double timeout_s = 0.001);
+  void drain_can_rx();
 
-  // Protocol commands
-  bool cmd_enable();
-  bool cmd_disable();
-  bool cmd_set_mode();
-  bool cmd_read_joint_positions();
+  // Piper SDK V2 protocol commands
+  bool cmd_enable_motors();
+  bool cmd_disable_motors();
+  bool cmd_set_motion_mode();
   bool cmd_write_joint_positions();
   bool cmd_write_gripper();
 
-  void log_joint_state();
-
-  // Socket
+  // Data
   int can_fd_ = -1;
   std::string can_iface_;
   mutable std::mutex can_mtx_;
 
-  // Joint data (7 DOF: 6 arm + 1 gripper)
-  static constexpr size_t NUM_ARM_JOINTS = 6;
+  // 7 DOF: 6 arm joints + 1 gripper
   static constexpr size_t NUM_JOINTS = 7;
   std::vector<double> hw_pos_;
   std::vector<double> hw_vel_;
   std::vector<double> hw_cmd_;
 
-  // CAN protocol constants
-  static constexpr double CAN_FACTOR = 57295.7795;   // rad -> 0.001 deg
-  static constexpr double GRIP_FACTOR = 1000000.0;   // m -> um
+  // Conversion factors (matching piper_sdk V2)
+  static constexpr double RAD_TO_MDEG = 57295.7795;   // 1000 * 180 / pi
+  static constexpr double METER_TO_UMM = 1000000.0;   // m -> 0.001mm
 
-  // CAN arbitration IDs (Piper protocol)
-  static constexpr uint32_t ID_MOTION_CTRL  = 0x010;   // Control mode
-  static constexpr uint32_t ID_JOINT_CMD_1  = 0x101;   // Joints 1-2 command
-  static constexpr uint32_t ID_JOINT_CMD_2  = 0x102;   // Joints 3-4 command
-  static constexpr uint32_t ID_JOINT_CMD_3  = 0x103;   // Joints 5-6 command
-  static constexpr uint32_t ID_GRIP_CMD     = 0x105;   // Gripper command
-  static constexpr uint32_t ID_JOINT_STATE_1 = 0x201;  // Joints 1-2 state
-  static constexpr uint32_t ID_JOINT_STATE_2 = 0x202;  // Joints 3-4 state
-  static constexpr uint32_t ID_JOINT_STATE_3 = 0x203;  // Joints 5-6 state
-  static constexpr uint32_t ID_GRIP_STATE    = 0x205;   // Gripper state
+  // CAN IDs — Piper SDK V2 protocol
+  // Motion control
+  static constexpr uint32_t ID_MOTION_CTRL_2 = 0x151;  // Mode/move control
+
+  // Joint command
+  static constexpr uint32_t ID_JOINT_CMD_12 = 0x155;   // Joint 1-2 command
+  static constexpr uint32_t ID_JOINT_CMD_34 = 0x156;   // Joint 3-4 command
+  static constexpr uint32_t ID_JOINT_CMD_56 = 0x157;   // Joint 5-6 command
+
+  // Gripper command
+  static constexpr uint32_t ID_GRIP_CMD = 0x159;       // Gripper command
+
+  // Motor enable/disable
+  static constexpr uint32_t ID_MOTOR_ENABLE = 0x471;   // Motor enable/disable
+
+  // Joint state feedback (pushed by arm, ~200Hz)
+  static constexpr uint32_t ID_JOINT_FB_12 = 0x2A5;   // Joint 1-2 feedback
+  static constexpr uint32_t ID_JOINT_FB_34 = 0x2A6;   // Joint 3-4 feedback
+  static constexpr uint32_t ID_JOINT_FB_56 = 0x2A7;   // Joint 5-6 feedback
+
+  // Gripper state feedback (pushed by arm)
+  static constexpr uint32_t ID_GRIP_FB = 0x2A8;       // Gripper feedback
 };
 
 }  // namespace piper_control
