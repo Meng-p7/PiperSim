@@ -1,7 +1,6 @@
 import os
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, TimerAction
-from launch.substitutions import LaunchConfiguration
+from launch.actions import DeclareLaunchArgument, TimerAction, ExecuteProcess
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
 
@@ -9,59 +8,42 @@ from ament_index_python.packages import get_package_share_directory
 def generate_launch_description():
     piper_desc_dir = get_package_share_directory("piper_description")
     piper_ctrl_dir = get_package_share_directory("piper_control")
-    piper_moveit_dir = get_package_share_directory("piper_moveit_config")
 
     urdf_path = os.path.join(piper_desc_dir, "urdf", "piper.urdf")
-    rviz_path = os.path.join(piper_moveit_dir, "rviz", "moveit.rviz")
+    rviz_path = os.path.join(piper_desc_dir, "rviz", "piper.rviz")
     controllers_yaml = os.path.join(piper_ctrl_dir, "config", "piper_controllers.yaml")
-
-    with open(urdf_path, "r") as f:
-        robot_desc = f.read()
+    activate_script = os.path.join(piper_ctrl_dir, "scripts", "activate_controllers.sh")
 
     return LaunchDescription([
         DeclareLaunchArgument("can", default_value="can0", description="CAN interface"),
 
-        # Robot state publisher (TF from URDF)
+        # Robot state publisher
         Node(
             package="robot_state_publisher",
             executable="robot_state_publisher",
             name="robot_state_publisher",
-            parameters=[{"robot_description": robot_desc}],
+            parameters=[{"robot_description": open(urdf_path).read()}],
             output="screen",
         ),
 
-        # ros2_control controller manager – loads piper_control/PiperHardware plugin
-        Node(
-            package="controller_manager",
-            executable="ros2_control_node",
-            name="controller_manager",
-            output="screen",
-            parameters=[
-                {"robot_description": robot_desc},
-                controllers_yaml,
+        # ros2_control controller manager — launched via ExecuteProcess for correct --params-file handling
+        ExecuteProcess(
+            cmd=[
+                "ros2", "run", "controller_manager", "ros2_control_node",
+                "--ros-args",
+                "-p", f"robot_description:={open(urdf_path).read()}",
+                "-p", "use_sim_time:=false",
+                "--params-file", controllers_yaml,
             ],
+            output="screen",
         ),
 
-        # Delay spawners to wait for controller_manager to be ready
+        # Activate controllers after controller_manager is ready
         TimerAction(
-            period=3.0,
+            period=10.0,
             actions=[
-                Node(
-                    package="controller_manager",
-                    executable="spawner",
-                    arguments=["joint_state_broadcaster", "--controller-manager", "/controller_manager"],
-                    output="screen",
-                ),
-                Node(
-                    package="controller_manager",
-                    executable="spawner",
-                    arguments=["piper_arm_controller", "--controller-manager", "/controller_manager"],
-                    output="screen",
-                ),
-                Node(
-                    package="controller_manager",
-                    executable="spawner",
-                    arguments=["piper_gripper_controller", "--controller-manager", "/controller_manager"],
+                ExecuteProcess(
+                    cmd=["bash", activate_script],
                     output="screen",
                 ),
             ],

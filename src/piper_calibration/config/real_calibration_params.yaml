@@ -20,7 +20,7 @@
     aruco_dict: "DICT_5X5_100"
 
     output_frame: "camera_optical_frame"
-    result_file: "real_eye_in_hand_result.yaml"
+    result_file: "data/real_eye_in_hand_result.yaml"
 
     seed_joints: [0.0, 1.57, -1.3485, 0.0, 0.0, 0.0]
     noise_per_joint: [0.05, 0.08, 0.08, 0.10, 0.05, 0.10]

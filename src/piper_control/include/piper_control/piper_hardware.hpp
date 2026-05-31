@@ -65,15 +65,18 @@ private:
   bool cmd_disable_motors();
   bool cmd_set_motion_mode();
   bool cmd_write_joint_positions();
+  bool cmd_write_joint_positions_zero();
   bool cmd_write_gripper();
+  bool cmd_write_gripper_zero();
 
   // Data
   int can_fd_ = -1;
   std::string can_iface_;
   mutable std::mutex can_mtx_;
 
-  // 7 DOF: 6 arm joints + 1 gripper
-  static constexpr size_t NUM_JOINTS = 7;
+  // 8 DOF: 6 arm + 1 gripper + 1 mimic gripper (joint8)
+  static constexpr size_t NUM_JOINTS = 8;
+  static constexpr size_t NUM_CMD_JOINTS = 7;  // joint1-7 have command interfaces
   std::vector<double> hw_pos_;
   std::vector<double> hw_vel_;
   std::vector<double> hw_cmd_;

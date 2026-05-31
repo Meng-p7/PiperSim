@@ -1,0 +1,360 @@
+- index: 0
+  image: calibration_images/calib_00.png
+  joints_rad:
+  - 0.275273
+  - 0.642944
+  - -0.417448
+  - -0.385473
+  - 0.616555
+  - 0.412997
+  ee_position:
+    x: 0.109337
+    y: 0.011687
+    z: 0.244184
+  board_detected: true
+  board_position:
+    x: -0.134816
+    y: 0.081462
+    z: 0.284845
+- index: 1
+  image: calibration_images/calib_01.png
+  joints_rad:
+  - 0.84467
+  - 0.880501
+  - -0.574964
+  - -0.798785
+  - 0.930714
+  - 1.07329
+  ee_position:
+    x: 0.126644
+    y: 0.065349
+    z: 0.264647
+  board_detected: true
+  board_position:
+    x: -0.096371
+    y: 0.079869
+    z: 0.289866
+- index: 2
+  image: calibration_images/calib_02.png
+  joints_rad:
+  - 0.354581
+  - 1.031821
+  - -1.149683
+  - -0.358142
+  - 1.238311
+  - 0.779412
+  ee_position:
+    x: 0.165408
+    y: 0.030502
+    z: 0.380416
+  board_detected: true
+  board_position:
+    x: -0.073271
+    y: 0.143545
+    z: 0.402204
+- index: 3
+  image: calibration_images/calib_03.png
+  joints_rad:
+  - 0.355558
+  - 1.010615
+  - -1.307287
+  - -0.15619
+  - 1.246392
+  - 0.569955
+  ee_position:
+    x: 0.151185
+    y: 0.043321
+    z: 0.424469
+  board_detected: true
+  board_position:
+    x: 0.009527
+    y: 0.130557
+    z: 0.450025
+- index: 4
+  image: calibration_images/calib_04.png
+  joints_rad:
+  - 0.227032
+  - 1.530549
+  - -1.691852
+  - -0.157272
+  - 1.252553
+  - 0.367305
+  ee_position:
+    x: 0.298524
+    y: 0.056504
+    z: 0.414554
+  board_detected: true
+  board_position:
+    x: -0.032638
+    y: 0.219931
+    z: 0.406156
+- index: 5
+  image: calibration_images/calib_05.png
+  joints_rad:
+  - 0.425092
+  - 1.590414
+  - -1.447646
+  - -0.318331
+  - 1.245083
+  - 0.535223
+  ee_position:
+    x: 0.293325
+    y: 0.104641
+    z: 0.330187
+  board_detected: true
+  board_position:
+    x: -0.069844
+    y: 0.129407
+    z: 0.329591
+- index: 6
+  image: calibration_images/calib_06.png
+  joints_rad:
+  - 0.284785
+  - 1.918536
+  - -1.737196
+  - -0.14933
+  - 1.251576
+  - 0.052465
+  ee_position:
+    x: 0.383015
+    y: 0.100188
+    z: 0.290195
+  board_detected: true
+  board_position:
+    x: -0.0993
+    y: 0.15695
+    z: 0.301925
+- index: 7
+  image: calibration_images/calib_07.png
+  joints_rad:
+  - 0.145665
+  - 0.860796
+  - -0.189141
+  - -0.126222
+  - 0.015446
+  - 0.157952
+  ee_position:
+    x: 0.131638
+    y: 0.020552
+    z: 0.185269
+  board_detected: true
+  board_position:
+    x: -0.101527
+    y: 0.092468
+    z: 0.234388
+- index: 8
+  image: calibration_images/calib_08.png
+  joints_rad:
+  - 1.082907
+  - 1.382964
+  - -1.085106
+  - -0.848125
+  - 1.23777
+  - 1.136244
+  ee_position:
+    x: 0.169616
+    y: 0.184013
+    z: 0.313158
+  board_detected: true
+  board_position:
+    x: -0.041938
+    y: 0.126294
+    z: 0.318094
+- index: 9
+  image: calibration_images/calib_09.png
+  joints_rad:
+  - 1.263583
+  - 1.369717
+  - -0.538068
+  - -1.151621
+  - 1.121898
+  - 1.818057
+  ee_position:
+    x: 0.124174
+    y: 0.145663
+    z: 0.200634
+  board_detected: true
+  board_position:
+    x: -0.061166
+    y: 0.07648
+    z: 0.224427
+- index: 10
+  image: calibration_images/calib_10.png
+  joints_rad:
+  - -0.35966
+  - 1.043271
+  - -0.945166
+  - 0.369818
+  - 0.977349
+  - -0.492078
+  ee_position:
+    x: 0.181513
+    y: -0.03771
+    z: 0.331378
+  board_detected: true
+  board_position:
+    x: -0.14118
+    y: 0.121555
+    z: 0.362923
+- index: 11
+  image: calibration_images/calib_11.png
+  joints_rad:
+  - 0.076864
+  - 1.045819
+  - -0.201062
+  - 0.054
+  - -0.108245
+  - -0.122889
+  ee_position:
+    x: 0.15203
+    y: 0.012594
+    z: 0.171497
+  board_detected: true
+  board_position:
+    x: -0.12584
+    y: 0.087079
+    z: 0.203
+- index: 12
+  image: calibration_images/calib_12.png
+  joints_rad:
+  - 0.076533
+  - 1.081842
+  - -1.504264
+  - 0.072344
+  - 1.260267
+  - -0.069534
+  ee_position:
+    x: 0.165627
+    y: 0.020399
+    z: 0.466596
+  board_detected: true
+  board_position:
+    x: -0.077395
+    y: 0.189895
+    z: 0.479912
+- index: 13
+  image: calibration_images/calib_13.png
+  joints_rad:
+  - 0.07758
+  - 1.821932
+  - -1.774982
+  - 0.070494
+  - 1.262868
+  - -0.239197
+  ee_position:
+    x: 0.377274
+    y: 0.036869
+    z: 0.337396
+  board_detected: true
+  board_position:
+    x: -0.127123
+    y: 0.162624
+    z: 0.35041
+- index: 14
+  image: calibration_images/calib_14.png
+  joints_rad:
+  - 0.27571
+  - 1.429233
+  - -1.087078
+  - -0.10355
+  - 0.914483
+  - -0.007802
+  ee_position:
+    x: 0.263601
+    y: 0.068295
+    z: 0.282312
+  board_detected: true
+  board_position:
+    x: -0.100375
+    y: 0.07859
+    z: 0.280878
+- index: 15
+  image: calibration_images/calib_15.png
+  joints_rad:
+  - -0.491607
+  - 1.211171
+  - -0.796254
+  - 0.700348
+  - 0.931761
+  - -1.097725
+  ee_position:
+    x: 0.203705
+    y: -0.054449
+    z: 0.269185
+  board_detected: true
+  board_position:
+    x: -0.136358
+    y: 0.077792
+    z: 0.316231
+- index: 16
+  image: calibration_images/calib_16.png
+  joints_rad:
+  - 0.296566
+  - 0.742725
+  - -0.340549
+  - -0.383344
+  - 0.363116
+  - 0.384845
+  ee_position:
+    x: 0.124794
+    y: 0.026866
+    z: 0.223828
+  board_detected: true
+  board_position:
+    x: -0.097986
+    y: 0.084025
+    z: 0.268796
+- index: 17
+  image: calibration_images/calib_17.png
+  joints_rad:
+  - 0.974348
+  - 1.219846
+  - -0.52784
+  - -1.137483
+  - 0.854059
+  - 1.05952
+  ee_position:
+    x: 0.152319
+    y: 0.11455
+    z: 0.215947
+  board_detected: true
+  board_position:
+    x: -0.106092
+    y: 0.050316
+    z: 0.21026
+- index: 18
+  image: calibration_images/calib_18.png
+  joints_rad:
+  - -0.181043
+  - 1.919181
+  - -1.725415
+  - 0.035657
+  - 1.240632
+  - 0.994733
+  ee_position:
+    x: 0.390011
+    y: -0.066834
+    z: 0.286314
+  board_detected: true
+  board_position:
+    x: 0.139359
+    y: 0.225662
+    z: 0.33648
+- index: 19
+  image: calibration_images/calib_19.png
+  joints_rad:
+  - 0.195337
+  - 1.103519
+  - -1.146873
+  - -0.104685
+  - 1.10989
+  - -0.164078
+  ee_position:
+    x: 0.192046
+    y: 0.030752
+    z: 0.368334
+  board_detected: true
+  board_position:
+    x: -0.148791
+    y: 0.056974
+    z: 0.363593

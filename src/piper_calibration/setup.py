@@ -13,7 +13,7 @@ setup(
         ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + '/launch', glob('launch/*.launch.py')),
         ('share/' + package_name + '/config', glob('config/*.yaml')),
-        ('share/' + package_name + '/config', glob('config/*.srdf')),
+        ('share/' + package_name + '/scripts', glob('scripts/*.py')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -25,6 +25,7 @@ setup(
     entry_points={
         'console_scripts': [
             'calibration_node = piper_calibration.calibration_node:main',
+            'verify_calibration = piper_calibration.verify_calibration:main',
         ],
     },
 )

@@ -100,13 +100,17 @@ hardware_interface::CallbackReturn PiperHardware::on_cleanup(
 hardware_interface::CallbackReturn PiperHardware::on_activate(
   const rclcpp_lifecycle::State & /*previous_state*/)
 {
-  // Step 1: Enable all motors (ID 0x471)
-  if (!cmd_enable_motors())
+  // Step 0: Disable first to clear any error state
+  cmd_disable_motors();
+  usleep(200000);  // 200ms
+
+  // Step 1: Enable all motors (ID 0x471) — send multiple times like SDK
+  for (int i = 0; i < 10; ++i)
   {
-    RCLCPP_ERROR(rclcpp::get_logger("PiperHardware"),
-                 "Failed to enable motors");
-    return hardware_interface::CallbackReturn::ERROR;
+    cmd_enable_motors();
+    usleep(10000);  // 10ms
   }
+  usleep(500000);  // 500ms wait for arm to confirm enable
   RCLCPP_INFO(rclcpp::get_logger("PiperHardware"), "Motors enabled");
 
   // Step 2: Set motion mode — CAN control + MOVEJ (ID 0x151)
@@ -125,7 +129,24 @@ hardware_interface::CallbackReturn PiperHardware::on_activate(
     drain_can_rx();
     usleep(5000);
   }
-  std::copy(hw_pos_.begin(), hw_pos_.end(), hw_cmd_.begin());
+
+  // Step 3: Move arm to zero position (like SDK default)
+  RCLCPP_INFO(rclcpp::get_logger("PiperHardware"), "Moving to zero position...");
+  for (int i = 0; i < 400; ++i)  // ~2 seconds at 5ms per cycle
+  {
+    cmd_set_motion_mode();
+    cmd_write_joint_positions_zero();
+    cmd_write_gripper_zero();
+    usleep(5000);
+  }
+
+  // Read final positions as command starting point
+  for (int i = 0; i < 10; ++i)
+  {
+    drain_can_rx();
+    usleep(5000);
+  }
+  std::copy(hw_pos_.begin(), hw_pos_.begin() + NUM_CMD_JOINTS, hw_cmd_.begin());
 
   return hardware_interface::CallbackReturn::SUCCESS;
 }
@@ -133,9 +154,23 @@ hardware_interface::CallbackReturn PiperHardware::on_activate(
 hardware_interface::CallbackReturn PiperHardware::on_deactivate(
   const rclcpp_lifecycle::State & /*previous_state*/)
 {
+  // Safety: move to zero position before disabling
+  RCLCPP_INFO(rclcpp::get_logger("PiperHardware"),
+              "Moving to zero position before disable...");
+
+  // Send zero position commands for ~3 seconds (600 cycles at 5ms)
+  for (int i = 0; i < 600; ++i)
+  {
+    cmd_set_motion_mode();
+    cmd_write_joint_positions_zero();
+    cmd_write_gripper_zero();
+    usleep(5000);
+  }
+
+  // Now safely disable
   cmd_disable_motors();
-  std::fill(hw_cmd_.begin(), hw_cmd_.end(), 0.0);
-  RCLCPP_INFO(rclcpp::get_logger("PiperHardware"), "Motors disabled");
+  std::fill(hw_cmd_.begin(), hw_cmd_.begin() + NUM_CMD_JOINTS, 0.0);
+  RCLCPP_INFO(rclcpp::get_logger("PiperHardware"), "At zero, motors disabled");
   return hardware_interface::CallbackReturn::SUCCESS;
 }
 
@@ -163,9 +198,10 @@ std::vector<hardware_interface::CommandInterface>
 PiperHardware::export_command_interfaces()
 {
   std::vector<hardware_interface::CommandInterface> interfaces;
-  interfaces.reserve(NUM_JOINTS);
+  interfaces.reserve(NUM_CMD_JOINTS);
 
-  for (size_t i = 0; i < NUM_JOINTS; ++i)
+  // Only joints with command interfaces (joint1-7), joint8 is mimic
+  for (size_t i = 0; i < NUM_CMD_JOINTS; ++i)
   {
     interfaces.emplace_back(
       info_.joints[i].name,
@@ -388,6 +424,24 @@ void PiperHardware::drain_can_rx()
       std::memcpy(&grip_raw, d, 4);
       grip_raw = static_cast<int32_t>(ntohl(static_cast<uint32_t>(grip_raw)));
       hw_pos_[6] = static_cast<double>(grip_raw) / METER_TO_UMM;
+
+      // Parse status byte for overheat/error warnings
+      uint8_t status = d[6];
+      if (status & 0x02) {  // motor_overheating
+        RCLCPP_WARN_THROTTLE(rclcpp::get_logger("PiperHardware"),
+          *rclcpp::Clock::make_shared(), 10000,
+          "Motor overheating detected! Arm may not respond to commands.");
+      }
+      if (status & 0x08) {  // driver_overheating
+        RCLCPP_WARN_THROTTLE(rclcpp::get_logger("PiperHardware"),
+          *rclcpp::Clock::make_shared(), 10000,
+          "Driver overheating! Arm may not respond to commands.");
+      }
+      if (status & 0x20) {  // driver_error_status
+        RCLCPP_WARN_THROTTLE(rclcpp::get_logger("PiperHardware"),
+          *rclcpp::Clock::make_shared(), 10000,
+          "Driver error detected! Try re-enabling the arm.");
+      }
     }
     // All other IDs (0x2A1 status, 0x2A2-2A4 end pose, 0x251-256 high-speed,
     // 0x261-266 low-speed, 0x473/476/478 config feedback, etc.) are silently discarded.
@@ -477,6 +531,40 @@ bool PiperHardware::cmd_write_gripper()
   data[6] = 0x01;  // enable gripper
   data[7] = 0x00;  // no zero-set
 
+  return send_can_frame(ID_GRIP_CMD, data, 8);
+}
+
+bool PiperHardware::cmd_write_joint_positions_zero()
+{
+  // Send all joints to zero position
+  auto encode_pair = [](double v1, double v2, uint8_t * out)
+  {
+    auto c1 = static_cast<int32_t>(std::round(v1 * RAD_TO_MDEG));
+    auto c2 = static_cast<int32_t>(std::round(v2 * RAD_TO_MDEG));
+    uint32_t be1 = htonl(static_cast<uint32_t>(c1));
+    uint32_t be2 = htonl(static_cast<uint32_t>(c2));
+    std::memcpy(out, &be1, 4);
+    std::memcpy(out + 4, &be2, 4);
+  };
+
+  uint8_t data[8];
+  encode_pair(0.0, 0.0, data);
+  send_can_frame(ID_JOINT_CMD_12, data, 8);
+  encode_pair(0.0, 0.0, data);
+  send_can_frame(ID_JOINT_CMD_34, data, 8);
+  encode_pair(0.0, 0.0, data);
+  send_can_frame(ID_JOINT_CMD_56, data, 8);
+  return true;
+}
+
+bool PiperHardware::cmd_write_gripper_zero()
+{
+  // Send gripper to zero (closed)
+  uint8_t data[8] = {};
+  data[4] = 0x03;
+  data[5] = 0xE8;  // effort = 1000
+  data[6] = 0x01;  // enable
+  data[7] = 0x00;
   return send_can_frame(ID_GRIP_CMD, data, 8);
 }
 

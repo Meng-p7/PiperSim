@@ -3,6 +3,7 @@ import os
 import threading
 import time
 
+import yaml
 import numpy as np
 import cv2
 import rclpy
@@ -390,22 +391,52 @@ class CalibrationNode(Node):
         self.get_logger().info(
             f"Processing {len(collected_images)} captured images...")
 
+        # Save all captured sample data for inspection
+        samples_file = os.path.splitext(self.result_file)[0] + "_samples.yaml"
+        samples_data = []
+
         valid = 0
-        for i, (img_path, T_ee) in enumerate(
-                zip(collected_images, collected_ee_poses)):
+        for i, (img_path, joints, T_ee) in enumerate(
+                zip(collected_images, collected_joints, collected_ee_poses)):
             img = cv2.imread(img_path)
             T_cam_board = self._detector.detect(
                 img, self._camera_matrix, self._dist_coeffs)
 
+            sample = {
+                "index": i,
+                "image": img_path,
+                "joints_rad": [round(j, 6) for j in joints],
+                "ee_position": {
+                    "x": round(float(T_ee[0, 3]), 6),
+                    "y": round(float(T_ee[1, 3]), 6),
+                    "z": round(float(T_ee[2, 3]), 6),
+                },
+                "board_detected": T_cam_board is not None,
+            }
+
             if T_cam_board is None:
                 self.get_logger().warn(
                     f"Image {i}: board NOT detected, skipping")
+                samples_data.append(sample)
                 continue
+
+            sample["board_position"] = {
+                "x": round(float(T_cam_board[0, 3]), 6),
+                "y": round(float(T_cam_board[1, 3]), 6),
+                "z": round(float(T_cam_board[2, 3]), 6),
+            }
+            samples_data.append(sample)
 
             self._calibrator.add_sample(T_ee, T_cam_board)
             valid += 1
             self.get_logger().info(
                 f"Image {i}: board detected, sample added ({valid} valid)")
+
+        # Save samples data
+        os.makedirs(os.path.dirname(samples_file) or ".", exist_ok=True)
+        with open(samples_file, "w") as f:
+            yaml.dump(samples_data, f, default_flow_style=False, sort_keys=False)
+        self.get_logger().info(f"Samples data saved to {samples_file}")
 
         self._finish_calibration(valid)
 

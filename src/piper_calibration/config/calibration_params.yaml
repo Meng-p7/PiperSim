@@ -31,7 +31,7 @@
 
     # --- Output ---
     output_frame: "camera_optical_frame"
-    result_file: "eye_in_hand_result.yaml"
+    result_file: "data/eye_in_hand_result.yaml"
 
     # --- Pose generation ---
     seed_joints: [0.0, 1.57, -1.3485, 0.0, 0.0, 0.0]
