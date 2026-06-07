@@ -14,7 +14,7 @@ def generate_launch_description():
         robot_desc = f.read()
 
     return LaunchDescription([
-        # Robot state publisher (publishes TF from URDF)
+        # 机器人状态发布器（从 URDF 发布 TF）
         Node(
             package="robot_state_publisher",
             executable="robot_state_publisher",
@@ -22,7 +22,7 @@ def generate_launch_description():
             parameters=[{"robot_description": robot_desc}],
         ),
 
-        # Joint state publisher GUI (interactive sliders for each joint)
+        # 关节状态发布器 GUI（各关节滑块）
         Node(
             package="joint_state_publisher_gui",
             executable="joint_state_publisher_gui",

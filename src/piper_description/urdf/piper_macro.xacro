@@ -1,0 +1,49 @@
+<?xml version="1.0"?>
+<robot name="piper" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:macro name="load_piper" params="
+    parent
+    prefix
+    *origin
+    include_gripper:=true
+    sim_gazebo:=false
+    sim_gazebo_classic:=false
+    joint_commands_topic:=/joint_commands_topic
+    joint_states_topic:=/joint_states_topic
+    joint_state_topic_hardware:=false
+    mock_hardware:=true
+    real_hardware:=false
+    initial_positions:=${dict(joint1=0.0,joint2=0.0,joint3=0.0,joint4=0.0,joint5=0.0,joint6=0.0)}">
+
+    <xacro:include filename="$(find piper_description)/urdf/piper_arm_macro.xacro" />
+    <xacro:piper_arm
+        parent="${parent}"
+        prefix="${prefix}">
+      <xacro:insert_block name="origin" />  <!-- position robot given the xacro argument origin -->
+    </xacro:piper_arm>
+
+    <xacro:if value="${include_gripper}">
+      <xacro:include filename="$(find piper_description)/urdf/piper_gripper_macro.xacro" />
+      <xacro:piper_gripper
+        parent="${prefix}tool_0"
+        prefix="${prefix}">
+        <origin xyz="0 0 0.13503" rpy="0 0 0" />  <!-- gripper base offset matching physical model -->
+      </xacro:piper_gripper>
+    </xacro:if>
+
+    <xacro:include filename="$(find piper_description)/urdf/piper.ros2_control.xacro" />
+    <xacro:property name="ros2_control_name" value="${prefix}piper_control"/>
+    <xacro:piper_ros2_control
+      name="${ros2_control_name}"
+      prefix="${prefix}"
+      include_gripper="${include_gripper}"
+      joint_state_topic_hardware="${joint_state_topic_hardware}"
+      mock_hardware="${mock_hardware}"
+      real_hardware="${real_hardware}"
+      sim_gazebo="${sim_gazebo}"
+      sim_gazebo_classic="${sim_gazebo_classic}"
+      joint_commands_topic="${joint_commands_topic}"
+      joint_states_topic="${joint_states_topic}"
+      initial_positions="${initial_positions}"/>
+  </xacro:macro>
+</robot>

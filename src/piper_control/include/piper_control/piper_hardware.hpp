@@ -1,7 +1,7 @@
 // Copyright 2024 Piper Robot
-// CAN bus hardware interface for ros2_control.
-// Uses SocketCAN (linux/can.h) to communicate with the Piper arm controller.
-// Protocol matches piper_sdk V2 (Agilex official SDK).
+// ros2_control 的 CAN 总线硬件接口。
+// 通过 SocketCAN (linux/can.h) 与 Piper 机械臂控制器通信。
+// 协议匹配 piper_sdk V2（Agilex 官方 SDK）。
 
 #ifndef PIPER_CONTROL__PIPER_HARDWARE_HPP_
 #define PIPER_CONTROL__PIPER_HARDWARE_HPP_

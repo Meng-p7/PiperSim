@@ -1,24 +1,24 @@
 // Copyright 2024 Piper Robot
-// SocketCAN hardware interface for the Piper 6-DOF arm + gripper.
+// Piper 六轴机械臂 + 夹爪的 SocketCAN 硬件接口。
 //
-// Protocol: Piper SDK V2 (Agilex official)
+// 协议：Piper SDK V2（Agilex 官方）
 //
-// Control flow:
+// 控制流程：
 //   on_activate:
-//     1. Send enable command (ID 0x471) — enable all 7 motors
-//     2. Send MotionCtrl_2 (ID 0x151) — set CAN control + MOVEJ mode
+//     1. 发送使能指令（ID 0x471）—— 使能全部 7 个电机
+//     2. 发送 MotionCtrl_2（ID 0x151）—— 设置 CAN 控制 + MOVEJ 模式
 //
-//   read() — drain all pending CAN frames:
-//     ID 0x2A5: joint 1-2 feedback (int32, big-endian, unit 0.001°)
-//     ID 0x2A6: joint 3-4 feedback
-//     ID 0x2A7: joint 5-6 feedback
-//     ID 0x2A8: gripper feedback (int32 angle in 0.001mm, int16 effort, uint8 status)
+//   read() — 读取所有待处理的 CAN 帧：
+//     ID 0x2A5: 关节 1-2 反馈（int32，大端序，单位 0.001°）
+//     ID 0x2A6: 关节 3-4 反馈
+//     ID 0x2A7: 关节 5-6 反馈
+//     ID 0x2A8: 夹爪反馈（int32 角度 0.001mm，int16 力矩，uint8 状态）
 //
 //   write():
-//     ID 0x155: joint 1-2 command (int32, big-endian, unit 0.001°)
-//     ID 0x156: joint 3-4 command
-//     ID 0x157: joint 5-6 command
-//     ID 0x159: gripper command (int32 angle in 0.001mm, uint16 effort, uint8 code, uint8 zero)
+//     ID 0x155: 关节 1-2 指令（int32，大端序，单位 0.001°）
+//     ID 0x156: 关节 3-4 指令
+//     ID 0x157: 关节 5-6 指令
+//     ID 0x159: 夹爪指令（int32 角度 0.001mm，uint16 力矩，uint8 使能码，uint8 保留）
 
 #include "piper_control/piper_hardware.hpp"
 
@@ -46,7 +46,7 @@ namespace piper_control
 {
 
 // ---------------------------------------------------------------------------
-// Lifecycle
+// 生命周期
 // ---------------------------------------------------------------------------
 
 hardware_interface::CallbackReturn PiperHardware::on_init(
@@ -100,11 +100,11 @@ hardware_interface::CallbackReturn PiperHardware::on_cleanup(
 hardware_interface::CallbackReturn PiperHardware::on_activate(
   const rclcpp_lifecycle::State & /*previous_state*/)
 {
-  // Step 0: Disable first to clear any error state
+  // 步骤 0：先失能以清除错误状态
   cmd_disable_motors();
   usleep(200000);  // 200ms
 
-  // Step 1: Enable all motors (ID 0x471) — send multiple times like SDK
+  // 步骤 1：使能全部电机（ID 0x471）—— 多次发送，参考 SDK 行为
   for (int i = 0; i < 10; ++i)
   {
     cmd_enable_motors();
@@ -113,7 +113,7 @@ hardware_interface::CallbackReturn PiperHardware::on_activate(
   usleep(500000);  // 500ms wait for arm to confirm enable
   RCLCPP_INFO(rclcpp::get_logger("PiperHardware"), "Motors enabled");
 
-  // Step 2: Set motion mode — CAN control + MOVEJ (ID 0x151)
+  // 步骤 2：设置运动模式 — CAN 控制 + MOVEJ（ID 0x151）
   if (!cmd_set_motion_mode())
   {
     RCLCPP_ERROR(rclcpp::get_logger("PiperHardware"),
@@ -123,14 +123,14 @@ hardware_interface::CallbackReturn PiperHardware::on_activate(
   RCLCPP_INFO(rclcpp::get_logger("PiperHardware"),
               "Motion mode set: CAN ctrl + MOVEJ, speed=100%%");
 
-  // Initialize command with current positions (read a few frames first)
+  // 用当前位置初始化指令（先读几帧反馈）
   for (int i = 0; i < 10; ++i)
   {
     drain_can_rx();
     usleep(5000);
   }
 
-  // Step 3: Move arm to zero position (like SDK default)
+  // 步骤 3：移动到零位（参考 SDK 默认行为）
   RCLCPP_INFO(rclcpp::get_logger("PiperHardware"), "Moving to zero position...");
   for (int i = 0; i < 400; ++i)  // ~2 seconds at 5ms per cycle
   {
@@ -140,7 +140,7 @@ hardware_interface::CallbackReturn PiperHardware::on_activate(
     usleep(5000);
   }
 
-  // Read final positions as command starting point
+  // 读取最终位置作为指令起点
   for (int i = 0; i < 10; ++i)
   {
     drain_can_rx();
@@ -154,11 +154,11 @@ hardware_interface::CallbackReturn PiperHardware::on_activate(
 hardware_interface::CallbackReturn PiperHardware::on_deactivate(
   const rclcpp_lifecycle::State & /*previous_state*/)
 {
-  // Safety: move to zero position before disabling
+  // 安全关闭：先回零再失能
   RCLCPP_INFO(rclcpp::get_logger("PiperHardware"),
               "Moving to zero position before disable...");
 
-  // Send zero position commands for ~3 seconds (600 cycles at 5ms)
+  // 持续发送零位指令约 3 秒（600 次循环，每次 5ms）
   for (int i = 0; i < 600; ++i)
   {
     cmd_set_motion_mode();
@@ -167,7 +167,7 @@ hardware_interface::CallbackReturn PiperHardware::on_deactivate(
     usleep(5000);
   }
 
-  // Now safely disable
+  // 安全失能
   cmd_disable_motors();
   std::fill(hw_cmd_.begin(), hw_cmd_.begin() + NUM_CMD_JOINTS, 0.0);
   RCLCPP_INFO(rclcpp::get_logger("PiperHardware"), "At zero, motors disabled");
@@ -175,7 +175,7 @@ hardware_interface::CallbackReturn PiperHardware::on_deactivate(
 }
 
 // ---------------------------------------------------------------------------
-// Interface export
+// 接口导出
 // ---------------------------------------------------------------------------
 
 std::vector<hardware_interface::StateInterface>
@@ -200,7 +200,7 @@ PiperHardware::export_command_interfaces()
   std::vector<hardware_interface::CommandInterface> interfaces;
   interfaces.reserve(NUM_CMD_JOINTS);
 
-  // Only joints with command interfaces (joint1-7), joint8 is mimic
+  // 仅导出有关节指令接口的关节（joint1-7），joint8 是 mimic 关节
   for (size_t i = 0; i < NUM_CMD_JOINTS; ++i)
   {
     interfaces.emplace_back(
@@ -212,7 +212,7 @@ PiperHardware::export_command_interfaces()
 }
 
 // ---------------------------------------------------------------------------
-// Read / Write
+// 读写周期
 // ---------------------------------------------------------------------------
 
 hardware_interface::return_type PiperHardware::read(
@@ -245,7 +245,7 @@ hardware_interface::return_type PiperHardware::write(
 }
 
 // ---------------------------------------------------------------------------
-// CAN socket helpers
+// CAN 套接字工具函数
 // ---------------------------------------------------------------------------
 
 bool PiperHardware::open_can(const std::string & iface)
@@ -280,7 +280,7 @@ bool PiperHardware::open_can(const std::string & iface)
     return false;
   }
 
-  // Set receive timeout
+  // 设置接收超时
   struct timeval tv {};
   tv.tv_sec = 0;
   tv.tv_usec = 10000;  // 10 ms
@@ -316,7 +316,7 @@ bool PiperHardware::send_can_frame(uint32_t id, const uint8_t * data, uint8_t le
 bool PiperHardware::recv_can_frame(
   uint32_t expected_id, uint8_t * data, uint8_t * out_len, double timeout_s)
 {
-  // Wait for data with select() WITHOUT holding the mutex
+  // 不持锁等待数据（select 不需要锁）
   {
     fd_set rfds;
     FD_ZERO(&rfds);
@@ -336,7 +336,7 @@ bool PiperHardware::recv_can_frame(
     if (ret <= 0) return false;
   }
 
-  // Read under lock
+  // 持锁读取
   std::lock_guard<std::mutex> lk(can_mtx_);
   if (can_fd_ < 0) return false;
 
@@ -352,11 +352,11 @@ bool PiperHardware::recv_can_frame(
 
 void PiperHardware::drain_can_rx()
 {
-  // Read all pending CAN frames and update joint/gripper state.
-  // The arm pushes feedback continuously (~200Hz for joints).
+  // 读取所有待处理的 CAN 帧，更新关节/夹爪状态。
+  // 机械臂会持续推送反馈（关节约 200Hz）。
   while (true)
   {
-    // Non-blocking select
+    // 非阻塞 select
     fd_set rfds;
     FD_ZERO(&rfds);
     int fd;
@@ -382,13 +382,13 @@ void PiperHardware::drain_can_rx()
       if (n < static_cast<ssize_t>(sizeof(frame))) return;
     }
 
-    // Decode feedback based on CAN ID (Piper SDK V2 protocol)
+    // 根据 CAN ID 解码反馈（Piper SDK V2 协议）
     uint32_t id = frame.can_id;
     const uint8_t * d = frame.data;
 
     if (id == ID_JOINT_FB_12 && frame.can_dlc >= 8)
     {
-      // Joint 1-2: two big-endian int32, unit 0.001°
+      // 关节 1-2：两个大端序 int32，单位 0.001°
       int32_t j1_raw, j2_raw;
       std::memcpy(&j1_raw, d, 4);
       std::memcpy(&j2_raw, d + 4, 4);
@@ -419,13 +419,13 @@ void PiperHardware::drain_can_rx()
     }
     else if (id == ID_GRIP_FB && frame.can_dlc >= 7)
     {
-      // Gripper: int32 angle (0.001mm) + int16 effort + uint8 status
+      // 夹爪：int32 角度（0.001mm）+ int16 力矩 + uint8 状态
       int32_t grip_raw;
       std::memcpy(&grip_raw, d, 4);
       grip_raw = static_cast<int32_t>(ntohl(static_cast<uint32_t>(grip_raw)));
       hw_pos_[6] = static_cast<double>(grip_raw) / METER_TO_UMM;
 
-      // Parse status byte for overheat/error warnings
+      // 解析状态字节，检测过热/错误
       uint8_t status = d[6];
       if (status & 0x02) {  // motor_overheating
         RCLCPP_WARN_THROTTLE(rclcpp::get_logger("PiperHardware"),
@@ -443,39 +443,39 @@ void PiperHardware::drain_can_rx()
           "Driver error detected! Try re-enabling the arm.");
       }
     }
-    // All other IDs (0x2A1 status, 0x2A2-2A4 end pose, 0x251-256 high-speed,
-    // 0x261-266 low-speed, 0x473/476/478 config feedback, etc.) are silently discarded.
+    // 其他 ID（0x2A1 状态、0x2A2-2A4 末端位姿、0x251-256 高速反馈、
+    // 0x261-266 低速反馈、0x473/476/478 配置反馈等）静默丢弃。
   }
 }
 
 // ---------------------------------------------------------------------------
-// Piper SDK V2 protocol
+// Piper SDK V2 协议
 // ---------------------------------------------------------------------------
 
 bool PiperHardware::cmd_enable_motors()
 {
-  // ID 0x471: Motor Enable/Disable
-  // Byte 0: motor_num (7 = all motors including gripper, 0xFF = all joints + gripper)
-  // Byte 1: enable_flag (0x01 = disable, 0x02 = enable)
-  uint8_t data[8] = {0x07, 0x02, 0, 0, 0, 0, 0, 0};  // enable all 7 motors
+  // ID 0x471: 电机使能/失能
+  // Byte 0: 电机序号（7=全部含夹爪，0xFF=全部关节+夹爪）
+  // Byte 1: 使能标志（0x01=失能，0x02=使能）
+  uint8_t data[8] = {0x07, 0x02, 0, 0, 0, 0, 0, 0};  // 使能全部 7 个电机
   return send_can_frame(ID_MOTOR_ENABLE, data, 8);
 }
 
 bool PiperHardware::cmd_disable_motors()
 {
-  uint8_t data[8] = {0x07, 0x01, 0, 0, 0, 0, 0, 0};  // disable all 7 motors
+  uint8_t data[8] = {0x07, 0x01, 0, 0, 0, 0, 0, 0};  // 失能全部 7 个电机
   return send_can_frame(ID_MOTOR_ENABLE, data, 8);
 }
 
 bool PiperHardware::cmd_set_motion_mode()
 {
   // ID 0x151: MotionCtrl_2
-  // Byte 0: ctrl_mode        0x01 = CAN command control
-  // Byte 1: move_mode        0x01 = MOVEJ (joint space)
-  // Byte 2: move_spd_rate    100  = 100% speed
-  // Byte 3: is_mit_mode      0x00 = position-velocity mode
+  // Byte 0: ctrl_mode        0x01 = CAN 指令控制
+  // Byte 1: move_mode        0x01 = MOVEJ（关节空间）
+  // Byte 2: move_spd_rate    100  = 100% 速度
+  // Byte 3: is_mit_mode      0x00 = 位置-速度模式
   // Byte 4: residence_time   0x00
-  // Byte 5: installation_pos 0x00 = default
+  // Byte 5: installation_pos 0x00 = 默认安装位
   // Byte 6-7: reserved       0x00
   uint8_t data[8] = {0x01, 0x01, 100, 0x00, 0x00, 0x00, 0x00, 0x00};
   return send_can_frame(ID_MOTION_CTRL_2, data, 8);
@@ -483,8 +483,8 @@ bool PiperHardware::cmd_set_motion_mode()
 
 bool PiperHardware::cmd_write_joint_positions()
 {
-  // ID 0x155/0x156/0x157: Joint command pairs
-  // Each frame: two big-endian int32, unit 0.001°
+  // ID 0x155/0x156/0x157: 关节指令对
+  // 每帧：两个大端序 int32，单位 0.001°
   auto encode_pair = [](double v1, double v2, uint8_t * out)
   {
     auto c1 = static_cast<int32_t>(std::round(v1 * RAD_TO_MDEG));
@@ -497,15 +497,15 @@ bool PiperHardware::cmd_write_joint_positions()
 
   uint8_t data[8];
 
-  // Joints 1 & 2 → ID 0x155
+  // 关节 1 & 2 → ID 0x155
   encode_pair(hw_cmd_[0], hw_cmd_[1], data);
   if (!send_can_frame(ID_JOINT_CMD_12, data, 8)) return false;
 
-  // Joints 3 & 4 → ID 0x156
+  // 关节 3 & 4 → ID 0x156
   encode_pair(hw_cmd_[2], hw_cmd_[3], data);
   if (!send_can_frame(ID_JOINT_CMD_34, data, 8)) return false;
 
-  // Joints 5 & 6 → ID 0x157
+  // 关节 5 & 6 → ID 0x157
   encode_pair(hw_cmd_[4], hw_cmd_[5], data);
   if (!send_can_frame(ID_JOINT_CMD_56, data, 8)) return false;
 
@@ -514,29 +514,29 @@ bool PiperHardware::cmd_write_joint_positions()
 
 bool PiperHardware::cmd_write_gripper()
 {
-  // ID 0x159: Gripper command
-  // Byte 0-3: int32 big-endian, gripper angle in 0.001mm
-  // Byte 4-5: uint16 big-endian, effort in 0.001N/m (0-5000)
-  // Byte 6:   uint8, status code (0x01 = enable)
-  // Byte 7:   uint8, set_zero (0x00 = no action)
+  // ID 0x159: 夹爪指令
+  // Byte 0-3: int32 大端序，夹爪角度 0.001mm
+  // Byte 4-5: uint16 大端序，力矩 0.001N/m（0-5000）
+  // Byte 6:   uint8，使能码（0x01=使能）
+  // Byte 7:   uint8，置零（0x00=不操作）
   auto pos_raw = static_cast<int32_t>(
     std::round(std::abs(hw_cmd_[6]) * METER_TO_UMM));
 
   uint8_t data[8] = {};
   uint32_t be = htonl(static_cast<uint32_t>(pos_raw));
   std::memcpy(data, &be, 4);
-  // Effort = 1000 (1.0 N/m), big-endian
+  // 力矩 = 1000（1.0 N/m），大端序
   data[4] = 0x03;
   data[5] = 0xE8;  // 1000 = 0x03E8
-  data[6] = 0x01;  // enable gripper
-  data[7] = 0x00;  // no zero-set
+  data[6] = 0x01;  // 使能夹爪
+  data[7] = 0x00;  // 不置零
 
   return send_can_frame(ID_GRIP_CMD, data, 8);
 }
 
 bool PiperHardware::cmd_write_joint_positions_zero()
 {
-  // Send all joints to zero position
+  // 发送全部关节到零位
   auto encode_pair = [](double v1, double v2, uint8_t * out)
   {
     auto c1 = static_cast<int32_t>(std::round(v1 * RAD_TO_MDEG));
@@ -559,7 +559,7 @@ bool PiperHardware::cmd_write_joint_positions_zero()
 
 bool PiperHardware::cmd_write_gripper_zero()
 {
-  // Send gripper to zero (closed)
+  // 夹爪回零（闭合）
   uint8_t data[8] = {};
   data[4] = 0x03;
   data[5] = 0xE8;  // effort = 1000
@@ -570,7 +570,7 @@ bool PiperHardware::cmd_write_gripper_zero()
 
 }  // namespace piper_control
 
-// Register as a plugin
+// 注册为 ros2_control 插件
 #include "pluginlib/class_list_macros.hpp"
 PLUGINLIB_EXPORT_CLASS(
   piper_control::PiperHardware,

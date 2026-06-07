@@ -34,7 +34,7 @@ def generate_launch_description():
             "mode", default_value="sim",
             description="sim (Gazebo + random poses) or real (RealSense + manual)"),
 
-        # Robot state publisher (always)
+        # 机器人状态发布器（始终启动）
         Node(
             package="robot_state_publisher",
             executable="robot_state_publisher",
@@ -43,7 +43,7 @@ def generate_launch_description():
             parameters=[{"robot_description": robot_desc}],
         ),
 
-        # --- Simulation only: controller_manager + spawners ---
+        # --- 仅仿真模式：控制器管理器 + 加载器 ---
         Node(
             package="controller_manager",
             executable="ros2_control_node",
@@ -74,7 +74,7 @@ def generate_launch_description():
             condition=is_sim,
         ),
 
-        # Calibration node (different config per mode)
+        # 标定节点（不同模式使用不同配置）
         Node(
             package="piper_calibration",
             executable="calibration_node",
@@ -93,7 +93,7 @@ def generate_launch_description():
             condition=is_real,
         ),
 
-        # RViz2 (always)
+        # RViz2（始终启动）
         Node(
             package="rviz2",
             executable="rviz2",

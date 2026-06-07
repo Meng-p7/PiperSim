@@ -1,0 +1,98 @@
+<?xml version="1.0"?>
+<robot name="piper_gripper" xmlns:xacro="http://ros.org/wiki/xacro">
+
+  <xacro:macro name="piper_gripper" params="
+    parent
+    prefix
+    *origin">
+
+    <joint name="${prefix}gripper_base_joint" type="fixed">
+      <xacro:insert_block name="origin" />
+      <parent link="${parent}"/>
+      <child link="${prefix}gripper_base_link" />
+    </joint>
+    <link name="${prefix}gripper_base_link">
+      <inertial>
+        <origin xyz="0 0 0" rpy="0 0 0" />
+        <mass value="0.05" />
+        <inertia ixx="0.0001" ixy="0" ixz="0" iyy="0.0001" iyz="0" izz="0.0001" />
+      </inertial>
+      <visual>
+        <origin xyz="0 0 0" rpy="0 0 0" />
+        <geometry>
+          <box size="0.06 0.04 0.04"/>
+        </geometry>
+        <material name="gripper_body_mat">
+          <color rgba="0.9 0.7 0.1 1"/>
+        </material>
+      </visual>
+      <collision>
+        <origin xyz="0 0 0" rpy="0 0 0" />
+        <geometry>
+          <box size="0.06 0.04 0.04"/>
+        </geometry>
+      </collision>
+    </link>
+
+    <joint name="${prefix}gripper_joint" type="prismatic">
+      <origin xyz="0 0.047 0" rpy="0 0 0" />
+      <parent link="${prefix}gripper_base_link"/>
+      <child link="${prefix}left_finger"/>
+      <axis xyz="0 1 0" />
+      <limit lower="0" upper="0.035" effort="20" velocity="0.1" />
+    </joint>
+    <link name="${prefix}left_finger">
+      <inertial>
+        <origin xyz="0 0 0" rpy="0 0 0" />
+        <mass value="0.02" />
+        <inertia ixx="0.00005" ixy="0" ixz="0" iyy="0.00005" iyz="0" izz="0.00005" />
+      </inertial>
+      <visual>
+        <origin xyz="0 0 0" rpy="0 0 0" />
+        <geometry>
+          <box size="0.02 0.01 0.04"/>
+        </geometry>
+        <material name="finger_mat">
+          <color rgba="0.9 0.7 0.1 1"/>
+        </material>
+      </visual>
+      <collision>
+        <origin xyz="0 0 0" rpy="0 0 0" />
+        <geometry>
+          <box size="0.02 0.01 0.04"/>
+        </geometry>
+      </collision>
+    </link>
+
+    <joint name="${prefix}right_finger_joint" type="prismatic">
+      <origin xyz="0 -0.047 0" rpy="0 0 0" />
+      <parent link="${prefix}gripper_base_link"/>
+      <child link="${prefix}right_finger"/>
+      <axis xyz="0 -1 0" />
+      <limit lower="0" upper="0.035" effort="20" velocity="0.1" />
+    </joint>
+    <link name="${prefix}right_finger">
+      <inertial>
+        <origin xyz="0 0 0" rpy="0 0 0" />
+        <mass value="0.02" />
+        <inertia ixx="0.00005" ixy="0" ixz="0" iyy="0.00005" iyz="0" izz="0.00005" />
+      </inertial>
+      <visual>
+        <origin xyz="0 0 0" rpy="0 0 0" />
+        <geometry>
+          <box size="0.02 0.01 0.04"/>
+        </geometry>
+        <material name="finger_mat">
+          <color rgba="0.9 0.7 0.1 1"/>
+        </material>
+      </visual>
+      <collision>
+        <origin xyz="0 0 0" rpy="0 0 0" />
+        <geometry>
+          <box size="0.02 0.01 0.04"/>
+        </geometry>
+      </collision>
+    </link>
+
+  </xacro:macro>
+</robot>
