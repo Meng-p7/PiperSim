@@ -21,11 +21,9 @@
           - joint4
           - joint5
           - joint6
-      # ParallelGripperCommand is not yet supported.
-      # see https://github.com/moveit/moveit2/issues/3017
       gripper_controller:
-        type: ParallelGripperCommand
+        type: FollowJointTrajectory
+        action_ns: follow_joint_trajectory
+        default: true
         joints:
           - gripper_joint
-        action_ns: gripper_cmd
-        default: true

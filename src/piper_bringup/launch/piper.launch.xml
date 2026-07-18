@@ -20,7 +20,7 @@
 
     <!-- ros2_control spawners -->
     <node pkg="controller_manager" exec="spawner"
-          args="joint_trajectory_controller gripper_controller joint_state_broadcaster -c /controller_manager" />
+          args="joint_trajectory_controller joint_state_broadcaster -c /controller_manager" />
 
     <group if="$(var rviz)">
         <node pkg="rviz2" exec="rviz2" args="-d $(find-pkg-share piper_bringup)/rviz/robotmodel.rviz" output="both"/>

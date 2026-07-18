@@ -8,20 +8,20 @@ until ros2 service list 2>/dev/null | grep -q "list_controllers"; do
 done
 sleep 3
 
-for CTRL in joint_state_broadcaster piper_arm_controller piper_gripper_controller; do
+for CTRL in joint_state_broadcaster joint_trajectory_controller gripper_controller; do
     echo "=== Processing $CTRL ==="
     ros2 control load_controller "$CTRL" -c "$CM" 2>&1 || true
     sleep 2
 done
 
 echo "=== Configuring (inactive) ==="
-for CTRL in joint_state_broadcaster piper_arm_controller piper_gripper_controller; do
+for CTRL in joint_state_broadcaster joint_trajectory_controller gripper_controller; do
     ros2 control set_controller_state "$CTRL" inactive -c "$CM" 2>&1 || true
     sleep 1
 done
 
 echo "=== Activating ==="
-for CTRL in joint_state_broadcaster piper_arm_controller piper_gripper_controller; do
+for CTRL in joint_state_broadcaster joint_trajectory_controller gripper_controller; do
     ros2 control set_controller_state "$CTRL" active -c "$CM" 2>&1 || true
     sleep 1
 done

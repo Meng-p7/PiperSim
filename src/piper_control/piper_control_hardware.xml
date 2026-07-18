@@ -6,8 +6,8 @@
       CAN bus hardware interface for the Piper robotic arm (SDK V2 protocol).
       Communicates via SocketCAN (linux/can.h) to read joint states and write
       position commands. Supports 6 revolute arm joints and 1 prismatic gripper
-      joint. Joint8 (right finger) is configured as a mimic of joint7 in the
-      URDF and is not directly controlled.
+      joint (gripper_joint). right_finger_joint is configured as a mimic of
+      gripper_joint in the URDF and is not directly controlled.
       CAN IDs: cmd 0x151(mode), 0x155-0x157(joints), 0x159(gripper), 0x471(enable)
                fb  0x2A5-0x2A7(joints), 0x2A8(gripper)
     </description>

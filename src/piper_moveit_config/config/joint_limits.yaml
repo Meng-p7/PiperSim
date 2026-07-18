@@ -5,43 +5,59 @@
       default_acceleration_scaling_factor: 1.0
 
       joint_limits:
-        gripper_joint:
-          has_velocity_limits: true
-          max_velocity: 1.0
-          has_acceleration_limits: true
-          max_acceleration: 1.0
-        joint_1:
+        joint1:
+          has_position_limits: true
+          min_position: -2.618
+          max_position: 2.618
           has_velocity_limits: true
           max_velocity: 3.14
           has_acceleration_limits: true
           max_acceleration: 10.0
-        joint_2:
+        joint2:
+          has_position_limits: true
+          min_position: 0.0
+          max_position: 3.14
           has_velocity_limits: true
           max_velocity: 3.4
           has_acceleration_limits: true
           max_acceleration: 10.0
-        joint_3:
+        joint3:
+          has_position_limits: true
+          min_position: -2.697
+          max_position: 0.0
           has_velocity_limits: true
           max_velocity: 3.14
           has_acceleration_limits: true
           max_acceleration: 10.0
-        joint_4:
+        joint4:
+          has_position_limits: true
+          min_position: -1.832
+          max_position: 1.832
           has_velocity_limits: true
           max_velocity: 3.93
           has_acceleration_limits: true
           max_acceleration: 10.0
-        joint_5:
+        joint5:
+          has_position_limits: true
+          min_position: -1.22
+          max_position: 1.22
           has_velocity_limits: true
           max_velocity: 3.93
           has_acceleration_limits: true
           max_acceleration: 10.0
-        joint_6:
+        joint6:
+          has_position_limits: true
+          min_position: -3.14159
+          max_position: 3.14159
           has_velocity_limits: true
           max_velocity: 3.93
           has_acceleration_limits: true
           max_acceleration: 10.0
-        mimic_gripper_joint:
+        gripper_joint:
+          has_position_limits: true
+          min_position: 0.0
+          max_position: 0.035
           has_velocity_limits: true
-          max_velocity: 1.0
+          max_velocity: 0.1
           has_acceleration_limits: true
           max_acceleration: 1.0

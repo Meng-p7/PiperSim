@@ -13,7 +13,7 @@ class StaticJointStatePublisher(Node):
         self.msg.name = [
             "joint1", "joint2", "joint3",
             "joint4", "joint5", "joint6",
-            "joint7", "joint8",
+            "gripper_joint", "right_finger_joint",
         ]
         self.msg.position = [0.0, 1.57, -1.3485, 0.0, 0.0, 0.0, 0.0, 0.0]
         self.msg.velocity = [0.0] * 8

@@ -47,7 +47,7 @@ joint_limits:
     max_velocity: 1.5
     has_acceleration_limits: true
     max_acceleration: 0.75
-  joint7:
+  gripper_joint:
     has_position_limits: true
     min_position: 0.0
     max_position: 0.035
@@ -55,7 +55,7 @@ joint_limits:
     max_velocity: 0.1
     has_acceleration_limits: true
     max_acceleration: 0.05
-  joint8:
+  right_finger_joint:
     has_position_limits: true
     min_position: -0.035
     max_position: 0.0

@@ -56,8 +56,6 @@ private:
   bool open_can(const std::string & iface);
   void close_can();
   bool send_can_frame(uint32_t id, const uint8_t * data, uint8_t len);
-  bool recv_can_frame(uint32_t expected_id, uint8_t * data,
-                      uint8_t * out_len, double timeout_s = 0.001);
   void drain_can_rx();
 
   // Piper SDK V2 protocol commands
@@ -74,9 +72,9 @@ private:
   std::string can_iface_;
   mutable std::mutex can_mtx_;
 
-  // 8 DOF: 6 arm + 1 gripper + 1 mimic gripper (joint8)
-  static constexpr size_t NUM_JOINTS = 8;
-  static constexpr size_t NUM_CMD_JOINTS = 7;  // joint1-7 have command interfaces
+  // 7 DOF: 6 arm + 1 gripper (right_finger 是 URDF mimic 关节，不参与指令/反馈)
+  static constexpr size_t NUM_JOINTS = 7;
+  static constexpr size_t NUM_CMD_JOINTS = 7;  // joint1-6 + gripper_joint 均有指令接口
   std::vector<double> hw_pos_;
   std::vector<double> hw_vel_;
   std::vector<double> hw_cmd_;

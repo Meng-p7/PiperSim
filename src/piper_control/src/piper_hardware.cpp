@@ -200,7 +200,8 @@ PiperHardware::export_command_interfaces()
   std::vector<hardware_interface::CommandInterface> interfaces;
   interfaces.reserve(NUM_CMD_JOINTS);
 
-  // 仅导出有关节指令接口的关节（joint1-7），joint8 是 mimic 关节
+  // 导出全部 7 个 ros2_control 关节的指令接口（joint1-6 + gripper_joint）；
+  // right_finger 是 URDF mimic 关节，不在此列。
   for (size_t i = 0; i < NUM_CMD_JOINTS; ++i)
   {
     interfaces.emplace_back(
@@ -225,6 +226,9 @@ hardware_interface::return_type PiperHardware::read(
 hardware_interface::return_type PiperHardware::write(
   const rclcpp::Time & /*time*/, const rclcpp::Duration & /*period*/)
 {
+  // 每个周期都设置运动模式（某些固件需要持续发送才能接受指令）
+  cmd_set_motion_mode();
+
   if (!cmd_write_joint_positions())
   {
     RCLCPP_WARN_THROTTLE(
@@ -313,71 +317,29 @@ bool PiperHardware::send_can_frame(uint32_t id, const uint8_t * data, uint8_t le
   return nbytes == static_cast<ssize_t>(sizeof(frame));
 }
 
-bool PiperHardware::recv_can_frame(
-  uint32_t expected_id, uint8_t * data, uint8_t * out_len, double timeout_s)
-{
-  // 不持锁等待数据（select 不需要锁）
-  {
-    fd_set rfds;
-    FD_ZERO(&rfds);
-    int fd;
-    {
-      std::lock_guard<std::mutex> lk(can_mtx_);
-      fd = can_fd_;
-    }
-    if (fd < 0) return false;
-
-    FD_SET(fd, &rfds);
-    struct timeval tv {};
-    tv.tv_sec = static_cast<long>(timeout_s);
-    tv.tv_usec = static_cast<long>((timeout_s - tv.tv_sec) * 1e6);
-
-    int ret = select(fd + 1, &rfds, nullptr, nullptr, &tv);
-    if (ret <= 0) return false;
-  }
-
-  // 持锁读取
-  std::lock_guard<std::mutex> lk(can_mtx_);
-  if (can_fd_ < 0) return false;
-
-  struct can_frame frame {};
-  ssize_t nbytes = ::read(can_fd_, &frame, sizeof(frame));
-  if (nbytes < static_cast<ssize_t>(sizeof(frame))) return false;
-  if (frame.can_id != expected_id) return false;
-
-  std::memcpy(data, frame.data, frame.can_dlc);
-  if (out_len) *out_len = frame.can_dlc;
-  return true;
-}
-
 void PiperHardware::drain_can_rx()
 {
   // 读取所有待处理的 CAN 帧，更新关节/夹爪状态。
   // 机械臂会持续推送反馈（关节约 200Hz）。
   while (true)
   {
-    // 非阻塞 select
-    fd_set rfds;
-    FD_ZERO(&rfds);
-    int fd;
-    {
-      std::lock_guard<std::mutex> lk(can_mtx_);
-      fd = can_fd_;
-    }
-    if (fd < 0) return;
-
-    FD_SET(fd, &rfds);
-    struct timeval tv {};
-    tv.tv_sec = 0;
-    tv.tv_usec = 0;  // non-blocking
-
-    int ret = select(fd + 1, &rfds, nullptr, nullptr, &tv);
-    if (ret <= 0) return;
-
     struct can_frame frame {};
     {
+      // 全程持锁：select（非阻塞）与 read 之间不释放锁，
+      // 避免其他线程在此窗口内抢先读走帧。
       std::lock_guard<std::mutex> lk(can_mtx_);
       if (can_fd_ < 0) return;
+
+      fd_set rfds;
+      FD_ZERO(&rfds);
+      FD_SET(can_fd_, &rfds);
+      struct timeval tv {};
+      tv.tv_sec = 0;
+      tv.tv_usec = 0;  // non-blocking
+
+      int ret = select(can_fd_ + 1, &rfds, nullptr, nullptr, &tv);
+      if (ret <= 0) return;
+
       ssize_t n = ::read(can_fd_, &frame, sizeof(frame));
       if (n < static_cast<ssize_t>(sizeof(frame))) return;
     }

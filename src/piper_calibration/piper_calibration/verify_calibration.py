@@ -114,7 +114,7 @@ class VerifyNode(Node):
         self.create_subscription(JointState, "/joint_states", self._joint_cb, 10)
         self._action_client = ActionClient(
             self, FollowJointTrajectory,
-            "/piper_arm_controller/follow_joint_trajectory")
+            "/joint_trajectory_controller/follow_joint_trajectory")
 
         self._tf_buffer = tf2_ros.Buffer()
         self._tf_listener = tf2_ros.TransformListener(self._tf_buffer, self)
