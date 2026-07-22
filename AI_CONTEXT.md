@@ -39,8 +39,10 @@ source ~/PiperSim/start_real.sh   # 真机环境
 | 模式 | 命令 |
 |---|---|
 | Mock+MoveIt(无硬件,推荐) | `source start_sim.sh && ros2 launch piper_moveit_config demo.launch.xml` |
-| Gazebo+MoveIt | `source start_sim.sh && ros2 launch piper_moveit_config demo.launch.xml sim_gazebo:=true` |
+| Gazebo+MoveIt(暂不可用) | `source start_sim.sh && ros2 launch piper_moveit_config demo.launch.xml sim_gazebo:=true` |
 | 真机 | `source start_real.sh && ros2 launch piper_moveit_config demo.launch.xml real_hardware:=true` |
+
+> ⚠️ **Gazebo 模式**: Gazebo Classic 在当前环境存在兼容性问题，暂不可用。建议使用 Mock 模式或真机模式。
 
 ## xacro 组装链
 `piper.urdf.xacro` → `load_piper`(piper_macro) → `piper_arm_macro` + `piper_gripper_macro` + `piper.ros2_control.xacro`(+ `piper.gazebo.xacro`)。硬件后端由 xacro 参数切换:`mock_hardware` / `sim_gazebo` / `real_hardware`。

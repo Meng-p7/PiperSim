@@ -117,7 +117,7 @@ source install/setup.bash
 项目提供了两个脚本，可以一步完成所有 source 操作：
 
 ```bash
-# 仿真模式（Mock / Gazebo）
+# Mock 仿真模式
 source ~/PiperSim/start_sim.sh
 
 # 真机模式
@@ -156,19 +156,21 @@ ros2 launch piper_moveit_config demo.launch.xml
 
 ---
 
-### 方式二：Gazebo 仿真
+### 方式二：Gazebo 仿真（暂不可用）
 
-**需要 1 个终端**
+> ⚠️ **状态**: Gazebo Classic 模式在当前环境中存在兼容性问题，暂不可用。
+>
+> 如需物理仿真，建议：
+> 1. 使用 Mock 模式进行运动规划测试
+> 2. 使用真机进行实际测试
+> 3. 或考虑迁移到 Gazebo Ignition（新版 Gazebo）
 
-在 Gazebo 中运行物理仿真：
+**计划命令（暂不可用）：**
 
-**终端 1：**
 ```bash
 source ~/PiperSim/start_sim.sh
 ros2 launch piper_moveit_config demo.launch.xml sim_gazebo:=true
 ```
-
-等待 Gazebo 和 RViz 打开，操作方式同 Mock 模式。
 
 ---
 

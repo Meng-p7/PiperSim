@@ -49,8 +49,20 @@ def generate_launch_description():
         except Exception:
             pass
 
+    # 设置 GAZEBO_MODEL_PATH 以便 Gazebo 能找到 mesh 文件
+    piper_desc_path = get_package_share_directory("piper_description")
+    gazebo_model_path = os.environ.get("GAZEBO_MODEL_PATH", "")
+    if piper_desc_path not in gazebo_model_path:
+        gazebo_model_path = piper_desc_path + (
+            ":" + gazebo_model_path if gazebo_model_path else ""
+        )
+
     # 修复 Wayland 下 Gazebo GUI 问题：强制使用 X11
-    gazebo_env = {"GAZEBO_PLUGIN_PATH": gazebo_plugin_path, "QT_QPA_PLATFORM": "xcb"}
+    gazebo_env = {
+        "GAZEBO_PLUGIN_PATH": gazebo_plugin_path,
+        "GAZEBO_MODEL_PATH": gazebo_model_path,
+        "QT_QPA_PLATFORM": "xcb"
+    }
 
     # 仅服务端（无界面）
     gazebo_server = ExecuteProcess(
@@ -119,12 +131,18 @@ def generate_launch_description():
 
     # 延迟加载控制器：等待 Gazebo 和机器人生成就绪
     delayed_spawners = TimerAction(
-        period=10.0,
+        period=15.0,
         actions=[
             joint_state_broadcaster_spawner,
             arm_controller_spawner,
             gripper_controller_spawner,
         ],
+    )
+
+    # 延迟生成实体：等待 Gazebo 完全启动
+    delayed_spawn = TimerAction(
+        period=8.0,
+        actions=[spawn_entity],
     )
 
     return LaunchDescription([
@@ -135,6 +153,6 @@ def generate_launch_description():
         robot_state_publisher,
         gazebo_server,
         gazebo_gui,
-        spawn_entity,
+        delayed_spawn,
         delayed_spawners,
     ])

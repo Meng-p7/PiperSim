@@ -11,6 +11,7 @@
 
     <!-- Import macros for main hardware components -->
     <xacro:include filename="$(find piper_description)/urdf/piper_macro.xacro" />
+    <xacro:include filename="$(find piper_description)/urdf/piper_gazebo_materials.xacro" />
     <!-- initial position for simulation -->
     <xacro:arg name="initial_positions_file" default="$(find piper_description)/config/initial_positions.yaml"/>
     <!-- convert to property to use substitution in function -->
