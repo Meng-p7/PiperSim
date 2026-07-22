@@ -5,43 +5,41 @@
     <arg name="real_hardware" default="false"/>
     <arg name="can" default="can0"/>
 
-    <!-- 真机模式：real_hardware:=true -->
+    <!-- 加载 URDF -->
+    <let name="urdf_content"
+         value="$(command 'xacro $(find-pkg-share piper_description)/urdf/piper.urdf.xacro mock_hardware:=true')" />
+
+    <!-- 真机模式 -->
     <group if="$(var real_hardware)">
         <include file="$(find-pkg-share piper_bringup)/launch/real_bringup.launch.py">
             <arg name="can" value="$(var can)"/>
         </include>
     </group>
 
-    <!-- Gazebo 仿真模式：sim_gazebo:=true (且非真机) -->
+    <!-- Gazebo 仿真模式 -->
     <group unless="$(var real_hardware)">
         <group if="$(var sim_gazebo)">
             <include file="$(find-pkg-share piper_bringup)/launch/gazebo_piper.launch.py"/>
         </group>
     </group>
 
-    <!-- Mock 硬件模式：默认 -->
+    <!-- Mock 硬件模式(默认) -->
     <group unless="$(var real_hardware)">
         <group unless="$(var sim_gazebo)">
-            <let name="urdf" value="$(command 'xacro $(find-pkg-share piper_description)/urdf/piper.urdf.xacro mock_hardware:=true')"/>
-            <node pkg="robot_state_publisher" exec="robot_state_publisher">
-                <param name="robot_description" value="$(var urdf)"/>
-            </node>
-            <node pkg="controller_manager" exec="ros2_control_node">
-                <param name="robot_description" value="$(var urdf)"/>
-                <param from="$(find-pkg-share piper_description)/config/mock_controllers.yaml"/>
-            </node>
-            <node pkg="controller_manager" exec="spawner"
-                  args="joint_state_broadcaster --controller-manager-timeout 30 -c /controller_manager" />
-            <node pkg="controller_manager" exec="spawner"
-                  args="joint_trajectory_controller --controller-manager-timeout 30 -c /controller_manager" />
+            <include file="$(find-pkg-share piper_bringup)/launch/mock_bringup.launch.py"/>
         </group>
     </group>
 
+    <!-- SRDF 语义描述 -->
     <let name="robot_description_semantic"
          value="$(command 'xacro $(find-pkg-share piper_moveit_config)/config/piper.srdf.xacro')" />
 
+    <!-- 等待硬件启动 -->
+    <executable cmd="sleep 3" output="screen"/>
+
     <!-- MoveGroup -->
     <node pkg="moveit_ros_move_group" exec="move_group" output="screen">
+        <param name="robot_description" value="$(var urdf_content)" />
         <param name="robot_description_semantic" value="$(var robot_description_semantic)" type="str" />
         <param name="planning_plugin" value="ompl_interface/OMPLPlanner"/>
         <param from="$(find-pkg-share piper_moveit_config)/config/ompl_planning.yaml" />
@@ -55,6 +53,7 @@
     <!-- RViz -->
     <group if="$(var rviz)">
         <node pkg="rviz2" exec="rviz2" name="rviz2" args="-d $(find-pkg-share piper_moveit_config)/config/moveit.rviz">
+            <param name="robot_description" value="$(var urdf_content)" />
             <param from="$(find-pkg-share piper_moveit_config)/config/ompl_planning.yaml" />
             <param from="$(find-pkg-share piper_moveit_config)/config/kinematics.yaml" />
             <param from="$(find-pkg-share piper_moveit_config)/config/joint_limits.yaml" />

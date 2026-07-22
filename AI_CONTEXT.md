@@ -15,13 +15,32 @@ ROS 2 Humble · Gazebo Classic(`gazebo_ros2_control`)· MoveIt2(OMPL/RRTConnect)
 - **piper_moveit_config** — MoveIt 配置(SRDF/OMPL/运动学/限位/`demo.launch.xml`)
 - **piper_bringup** — 启动文件 + 仿真世界
 
+## 启动脚本（重要）
+项目根目录提供两个脚本，一键完成所有 source 操作：
+
+```bash
+source ~/PiperSim/start_sim.sh    # 仿真环境（Mock / Gazebo）
+source ~/PiperSim/start_real.sh   # 真机环境
+```
+
+脚本自动完成：
+1. 激活 conda 环境 `piper_sdk`
+2. Source ROS 2 Humble 环境（fishros_humble）
+3. Source PiperSim 工作空间
+
+**必须用 `source` 命令运行**，否则环境不会在当前 shell 生效。
+
+## 环境说明
+- **conda 环境**: `piper_sdk`（包含项目所需的所有 Python 依赖）
+- **ROS 2 环境**: `fishros_humble`（ROS 2 Humble 发行版）
+- 由于在 `~/.bashrc` 中禁用了 ROS 2 自动启动，需要手动 source
+
 ## 启动模式
 | 模式 | 命令 |
 |---|---|
-| Gazebo+MoveIt | `ros2 launch piper_bringup gazebo_piper.launch.py` |
-| Mock+MoveIt(无硬件) | `ros2 launch piper_moveit_config demo.launch.xml` |
-| Gazebo(经 demo) | `ros2 launch piper_moveit_config demo.launch.xml sim_gazebo:=true` |
-| 真机 | `ros2 launch piper_bringup real_bringup.launch.py` |
+| Mock+MoveIt(无硬件,推荐) | `source start_sim.sh && ros2 launch piper_moveit_config demo.launch.xml` |
+| Gazebo+MoveIt | `source start_sim.sh && ros2 launch piper_moveit_config demo.launch.xml sim_gazebo:=true` |
+| 真机 | `source start_real.sh && ros2 launch piper_moveit_config demo.launch.xml real_hardware:=true` |
 
 ## xacro 组装链
 `piper.urdf.xacro` → `load_piper`(piper_macro) → `piper_arm_macro` + `piper_gripper_macro` + `piper.ros2_control.xacro`(+ `piper.gazebo.xacro`)。硬件后端由 xacro 参数切换:`mock_hardware` / `sim_gazebo` / `real_hardware`。
@@ -62,7 +81,15 @@ xacro src/piper_description/urdf/piper.urdf.xacro real_hardware:=true   # URDF �
 - 模型装配:`link6` 视觉朝向(X→Z);夹爪按官方重建(去掉伪造方块基座,修正位置/滑动轴/mimic 系数)
 - `moveit_controllers.yaml` 漏注册 `gripper_controller` → 补上 `gripper_joint` 的 FollowJointTrajectory 项(否则 SRDF `gripper` group plan and execute 报"no controller")
 - joint3 限位跨文件统一为 `-2.697` / `0`(arm_macro `−3.0` / ros2_control `−2.967` → 全部 `−2.697`)
-
+- **MoveIt Mock 模式修复(2026-07)**:
+  - `ompl_planning.yaml`: 修复 `request_adapters` 参数类型(数组→字符串),解决 move_group 崩溃
+  - `kinematics.yaml`: 增加 timeout(0.05s→5s),移除错误的 gripper 运动学配置
+  - `moveit.rviz`: Fixed Frame 从 `table` 改为 `base_link`
+  - `demo.launch.xml`: 添加显式的 `robot_description` 参数
+  - `mock_controllers.yaml`: 修复控制器配置格式(匹配 `piper_controllers.yaml`)
+  - `mock_bringup.launch.py`: 增加控制器启动延迟(2s/4s/6s)
+  - `piper.srdf.xacro`: 添加完整的碰撞禁用配置,`base_link` 与 `table` 碰撞设为 `Never`
+  - 新增 `start_sim.sh` / `start_real.sh`: 一键 source 脚本
 
 ## 路线图
 见 README「开发路线」:MuJoCo 后端、仿真场景、sim2real、自主数据采集、世界模型。

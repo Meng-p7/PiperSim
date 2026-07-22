@@ -22,6 +22,8 @@ PiperSim 为 Piper 机械臂提供从仿真到真机的完整工具链，目标�
 
 ```
 PiperSim/
+├── start_sim.sh              # 仿真环境一键设置脚本
+├── start_real.sh             # 真机环境一键设置脚本
 └── src/
     ├── piper_description/       # 机器人模型（xacro + DAE 网格）
     │   ├── urdf/                # 模块化 xacro 宏定义
@@ -51,6 +53,17 @@ PiperSim/
         │   └── real_bringup.launch.py   # 真机启动
         └── worlds/empty_world.sdf
 ```
+
+---
+
+## 环境说明
+
+本项目需要以下环境：
+
+- **conda 环境**: `piper_sdk`（包含项目所需的所有 Python 依赖）
+- **ROS 2 环境**: `fishros_humble`（ROS 2 Humble 发行版）
+
+由于在 `~/.bashrc` 中禁用了 ROS 2 自动启动，需要手动 source。项目提供了脚本一键完成所有环境设置。
 
 ---
 
@@ -93,101 +106,104 @@ cd ~/PiperSim
 rm -rf build/ install/ log/
 colcon build
 source install/setup.bash
-
 ```
 
 ---
 
-## 开始使用
+## 快速开始
 
-### 仿真控制
+### 一键设置环境
 
-> 需要 **2 个终端**。
-
-#### 方式一：Gazebo + MoveIt
-
-**终端 ① — 启动仿真环境：**
+项目提供了两个脚本，可以一步完成所有 source 操作：
 
 ```bash
-source /opt/ros/humble/setup.bash
-source ~/PiperSim/install/setup.bash
-ros2 launch piper_bringup gazebo_piper.launch.py
+# 仿真模式（Mock / Gazebo）
+source ~/PiperSim/start_sim.sh
+
+# 真机模式
+source ~/PiperSim/start_real.sh
 ```
 
-等待约 10 秒，Gazebo 窗口打开，机械臂加载。
+脚本会自动：
+1. 激活 conda 环境 `piper_sdk`
+2. Source ROS 2 Humble 环境（fishros_humble）
+3. Source PiperSim 工作空间
 
-**终端 ② — 发送关节指令或启动 MoveIt：**
+**注意**: 必须用 `source` 命令运行脚本，否则环境不会在当前 shell 生效。
 
-```bash
-source /opt/ros/humble/setup.bash
-source ~/PiperSim/install/setup.bash
+---
 
-# 方式 A：直接发关节指令
-ros2 action send_goal /joint_trajectory_controller/follow_joint_trajectory \
-  control_msgs/action/FollowJointTrajectory \
-  "{trajectory: {joint_names: [joint1, joint2, joint3, joint4, joint5, joint6],
-    points: [{positions: [0.2, 0.2, -0.2, 0.0, 0.0, 0.0], time_from_start: {sec: 3}}]}}"
+## 使用教程
 
-# 方式 B：使用 MoveIt 可视化规划（与方式 A 二选一）
-ros2 launch piper_moveit_config demo.launch.xml sim_gazebo:=true
-```
+### 方式一：Mock 模式（推荐新手）
 
-在 RViz 中操作：
-- **Planning** 标签页 → **Planning Group** 选择 `manipulator`
-- 拖动末端设定目标姿态 → **Plan & Execute**
-- 切换到 `gripper` 组 → 选择 `open` / `closed`pper` 组 → 选择 `open` / `closed`
-
-#### 方式二：Mock 硬件（无 Gazebo）
+**需要 1 个终端**
 
 无需 Gazebo 和实物，使用虚拟控制器运行 MoveIt：
 
+**终端 1：**
 ```bash
-source /opt/ros/humble/setup.bash
-source ~/PiperSim/install/setup.bash
+source ~/PiperSim/start_sim.sh
 ros2 launch piper_moveit_config demo.launch.xml
 ```
 
-操作方式同上，机械臂只在 RViz 中显示。
+等待 RViz 打开，在左侧 **MotionPlanning** 面板中：
+
+1. **Planning Group** 选择 `manipulator`
+2. **Goal State** 选择 `home` 或 `forward`
+3. 点击 **Plan** 预览轨迹
+4. 点击 **Plan & Execute** 执行
 
 ---
 
-### 真机控制
+### 方式二：Gazebo 仿真
 
-> **需要 2 个终端**，分别执行以下步骤。
+**需要 1 个终端**
 
-#### 1. 激活 CAN 总线（新开终端）
+在 Gazebo 中运行物理仿真：
 
+**终端 1：**
+```bash
+source ~/PiperSim/start_sim.sh
+ros2 launch piper_moveit_config demo.launch.xml sim_gazebo:=true
+```
+
+等待 Gazebo 和 RViz 打开，操作方式同 Mock 模式。
+
+---
+
+### 方式三：真机控制
+
+**需要 2 个终端**
+
+**终端 1：激活 CAN 总线**
 ```bash
 # 假设 CAN 接口为 can0，波特率 1Mbps
-bash src/piper_control/scripts/can_activate.sh can0 1000000
+bash ~/PiperSim/src/piper_control/scripts/can_activate.sh can0 1000000
 ```
 
-#### 2. 终端 ① — 启动真机控制
-
+**终端 2：启动真机控制**
 ```bash
-source /opt/ros/humble/setup.bash
-source ~/PiperSim/install/setup.bash
-ros2 launch piper_bringup real_bringup.launch.py
+source ~/PiperSim/start_real.sh
+ros2 launch piper_moveit_config demo.launch.xml real_hardware:=true
 ```
 
-等待终端出现以下输出（表示所有控制器已激活，可以发指令了）：
-
+等待终端显示：
 ```
 [spawner_joint_state_broadcaster]: Configured and activated joint_state_broadcaster
 [spawner_joint_trajectory_controller]: Configured and activated joint_trajectory_controller
 [spawner_gripper_controller]: Configured and activated gripper_controller
 ```
 
-> 此终端**保持运行**，不要关闭。
+然后在 RViz 中操作（同 Mock 模式）。
 
-#### 3. 终端 ② — 发送关节指令
+---
 
-**新开一个终端**，执行：
+### 发送关节指令（可选）
+
+如果不想使用 MoveIt，可以直接发送关节指令：
 
 ```bash
-source /opt/ros/humble/setup.bash
-source ~/PiperSim/install/setup.bash
-
 # 移动到指定关节角度
 ros2 action send_goal /joint_trajectory_controller/follow_joint_trajectory \
   control_msgs/action/FollowJointTrajectory \
@@ -201,30 +217,28 @@ ros2 action send_goal /joint_trajectory_controller/follow_joint_trajectory \
     points: [{positions: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0], time_from_start: {sec: 3}}]}}"
 ```
 
-#### 4. 停止
-
-在 **终端 ①** 按 `Ctrl+C`，手臂会先回零再失能。
-
 ---
 
-### 手眼标定与验证
+## 手眼标定与验证
 
-#### 1. 启动标定节点
+### 1. 启动标定节点
 
+**需要 2 个终端**
+
+**终端 1：启动真机控制（如未运行）**
 ```bash
-# 终端 1：启动真机控制（如未运行）
+source ~/PiperSim/start_real.sh
 ros2 launch piper_bringup real_bringup.launch.py
-
-# 终端 2：启动标定节点（仿真模式）
-ros2 launch piper_calibration calibration.launch.py mode:=sim
-
-# 终端 2：启动标定节点（真机模式，需连接 RealSense 相机）
-ros2 launch piper_calibration calibration.launch.py mode:=real
 ```
 
-#### 2. 仿真模式（自动采集）
+**终端 2：启动标定节点**
+```bash
+source ~/PiperSim/start_real.sh
+ros2 launch piper_calibration calibration.launch.py mode:=sim      # 仿真模式
+ros2 launch piper_calibration calibration.launch.py mode:=real     # 真机模式
+```
 
-仿真模式下会自动生成随机位姿并采集，可以修改上面的命令，指定park方法：
+### 2. 仿真模式（自动采集）
 
 ```bash
 ros2 launch piper_calibration calibration.launch.py mode:=sim method:=park
@@ -233,52 +247,35 @@ ros2 launch piper_calibration calibration.launch.py mode:=sim method:=park
 - 默认采集 15 个位姿
 - 使用 `park` 方法（推荐）
 - 结果保存至 `calibration_result.yaml`
-- 检查数据：`calibration_result_samples.yaml`
 
-#### 3. 真机模式（手动采集）
+### 3. 真机模式（手动采集）
 
-终端 2 运行 `mode:=real` 后，会打开实时视频窗口：
+运行后打开实时视频窗口：
 
 ```
 Calibration Capture [Space=save, Q=finish]
 Captured: 0/20
-SPACE=capture  Q=finish
 ```
 
 操作步骤：
 1. 手动移动机械臂到合适位置
 2. 按 `SPACE` 采集当前位姿
-3. 重复 20 次以上（建议 20 张）
-4. 按 `Q` 退出采集模式，自动开始标定计算
-5. 结果保存至 `data/real_eye_in_hand_result.yaml`
+3. 重复 20 次以上
+4. 按 `Q` 退出，自动计算标定结果
 
-#### 4. 标定验证
-
-**方式一：查看标定板位置**（仅显示，不动机械臂）
+### 4. 标定验证
 
 ```bash
+# 查看标定板位置
 python3 src/piper_calibration/scripts/check_tag_position.py \
   --result-file data/real_eye_in_hand_result.yaml \
-  --tag-id 1 \
-  --tag-size 0.057
-```
+  --tag-id 1 --tag-size 0.057
 
-显示三个坐标系下的位置：camera / ee_frame / base，按 Q 退出。
-
-**方式二：机械臂移动验证**
-
-```bash
+# 机械臂移动验证
 python3 src/piper_calibration/piper_calibration/verify_calibration_moveit.py \
   --result-file data/real_eye_in_hand_result.yaml \
-  --tag-id 1 \
-  --tag-size 0.057
+  --tag-id 1 --tag-size 0.057
 ```
-
-操作：
-1. 将 AprilTag 板子放在机械臂前方
-2. 实时视频窗口显示检测到的 Tag
-3. 按空格键，机械臂通过 MoveIt 移动到 Tag 上方
-4. 显示实际位置与目标的误差（mm）
 
 ---
 
@@ -298,11 +295,21 @@ bash src/piper_control/scripts/clean_can.sh
 
 确认 `GAZEBO_PLUGIN_PATH` 包含 `/opt/ros/humble/lib`，终止旧 Gazebo 进程后重试。
 
+### MoveIt 规划失败
+
+如果显示 `Motion planning start tree could not be initialized`：
+
+1. 确保 `base_link` 和 `table` 的碰撞已禁用（SRDF 配置）
+2. 检查起始状态是否在碰撞中（RViz 中红色表示碰撞）
+3. 尝试使用 **Goal State: home** 作为起始点
+
 ---
 
 ## 开发路线
 
-- [ ] MoveIt 真机运动规划（修复关节限位冲突）
+- [x] MoveIt Mock 模式修复
+- [x] 碰撞检测配置修复
+- [ ] MoveIt 真机运动规划优化
 - [ ] MuJoCo 仿真后端（高速并行训练）
 - [ ] 仿真场景搭建（乒乓球桌、物体模型等）
 - [ ] 仿真到真实的策略迁移流程
