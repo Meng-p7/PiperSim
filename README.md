@@ -42,7 +42,7 @@ PiperSim/
 - Ubuntu 22.04
 - ROS 2 Humble
 - Python 3.10 + conda
-- MuJoCo 3.4.0
+- MuJoCo 3.4.0（作者用的3.8.0）
 
 ---
 
