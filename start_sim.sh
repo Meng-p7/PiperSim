@@ -30,9 +30,28 @@ echo ">>> 已 source ROS 2 Humble (fishros_humble)"
 source "$SCRIPT_DIR/install/setup.bash"
 echo ">>> 已 source PiperSim 工作空间"
 
+# 自动加载 mujoco_ros2_control（如果已编译）
+MUJOCO_WS=~/mujoco_ros2_control_ws
+if [ -f "$MUJOCO_WS/install/setup.bash" ]; then
+    source "$MUJOCO_WS/install/setup.bash"
+    echo ">>> 已 source mujoco_ros2_control"
+fi
+
 echo ""
-echo "环境已设置! 运行以下命令启动仿真:"
+echo "环境已设置! 运行以下命令启动:"
 echo ""
-echo "  ros2 launch piper_moveit_config demo.launch.xml                    # Mock 模式（推荐）"
-echo "  ros2 launch piper_moveit_config demo.launch.xml sim_gazebo:=true   # Gazebo 模式（暂不可用）"
+echo "  # Mock 模式（推荐开发）"
+echo "  ros2 launch piper_moveit_config demo.launch.py mode:=mock"
+echo ""
+echo "  # Sim 模式（MuJoCo仿真）"
+echo "  ros2 launch piper_moveit_config demo.launch.py mode:=sim"
+echo ""
+echo "  # Real 模式（真机控制）"
+echo "  ros2 launch piper_moveit_config demo.launch.py mode:=real"
+echo ""
+echo "  # Twin 模式（数字孪生：真机+MuJoCo）"
+echo "  ros2 launch piper_moveit_config demo.launch.py mode:=twin"
+echo ""
+echo "  # 手动控制（MuJoCo GUI拖动）"
+echo "  ros2 launch piper_mujoco mujoco_manual_control.launch.py"
 echo ""

@@ -3,7 +3,7 @@ project(piper_bringup)
 
 find_package(ament_cmake REQUIRED)
 
-install(DIRECTORY launch rviz worlds
+install(DIRECTORY launch rviz
         DESTINATION share/${PROJECT_NAME}/)
 
 ament_package()

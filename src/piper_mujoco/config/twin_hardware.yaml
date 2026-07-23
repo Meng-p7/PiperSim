@@ -1,0 +1,15 @@
+# 数字孪生硬件配置
+# MuJoCo订阅真机的/joint_states作为位置命令
+
+controller_manager:
+  ros__parameters:
+    update_rate: 100
+    use_sim_time: true
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+joint_state_broadcaster:
+  ros__parameters:
+    use_sim_time: true
+    publish_rate: 100.0

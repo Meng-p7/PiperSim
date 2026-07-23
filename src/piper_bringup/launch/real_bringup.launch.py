@@ -8,7 +8,8 @@ from launch.actions import (
     ExecuteProcess,
     TimerAction,
 )
-from launch.substitutions import Command, PathJoinSubstitution
+from launch.substitutions import Command, PathJoinSubstitution, LaunchConfiguration
+from launch.conditions import UnlessCondition
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 from ament_index_python.packages import get_package_share_directory
@@ -16,6 +17,14 @@ from ament_index_python.packages import get_package_share_directory
 
 def generate_launch_description():
     piper_desc_share = FindPackageShare("piper_description")
+
+    # 参数：是否启动robot_state_publisher（默认启动，但在Twin模式下不启动）
+    start_rsp_arg = DeclareLaunchArgument(
+        'start_robot_state_publisher',
+        default_value='true',
+        description='Whether to start robot_state_publisher (false in Twin mode)'
+    )
+    start_rsp = LaunchConfiguration('start_robot_state_publisher')
 
     # 加载 URDF（xacro），使用真机模式
     xacro_file = PathJoinSubstitution([piper_desc_share, "urdf", "piper.urdf.xacro"])
@@ -27,13 +36,14 @@ def generate_launch_description():
         "config", "piper_controllers.yaml",
     )
 
-    # 机器人状态发布器
+    # 机器人状态发布器（仅在非Twin模式下启动）
     robot_state_publisher = Node(
         package="robot_state_publisher",
         executable="robot_state_publisher",
         name="robot_state_publisher",
         output="screen",
         parameters=[{"robot_description": robot_description}],
+        condition=UnlessCondition(start_rsp),
     )
 
     # ros2_control 控制管理器（真机硬件）
@@ -77,6 +87,7 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
+        start_rsp_arg,
         robot_state_publisher,
         controller_manager,
         spawn_joint_broadcaster,

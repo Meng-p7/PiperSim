@@ -7,8 +7,7 @@
     include_gripper:=true
     mock_hardware:=false
     fake_sensor_commands:=false
-    sim_gazebo:=false
-    sim_gazebo_classic:=false
+    sim_mujoco:=false
     real_hardware:=false
     joint_state_topic_hardware:=false
     joint_commands_topic:=/joint_commands_topic
@@ -17,13 +16,12 @@
 
     <ros2_control name="${name}" type="system">
       <hardware>
-        <!-- Ignition Gazebo (new) -->
-        <xacro:if value="${sim_gazebo}">
-          <plugin>gz_ros2_control/GazeboSimSystem</plugin>
-        </xacro:if>
-        <!-- Classic Gazebo -->
-        <xacro:if value="${sim_gazebo_classic}">
-          <plugin>gazebo_ros2_control/GazeboSystem</plugin>
+        <!-- MuJoCo simulation using mujoco_ros2_control -->
+        <xacro:if value="${sim_mujoco}">
+          <plugin>mujoco_ros2_control/MujocoSystemInterface</plugin>
+          <param name="mujoco_model">$(find piper_mujoco)/models/piper.xml</param>
+          <param name="use_sim_time">true</param>
+          <param name="headless">false</param>
         </xacro:if>
         <!-- This supports Isaac sim and Hardware -->
         <xacro:if value="${joint_state_topic_hardware}">

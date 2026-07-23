@@ -13,7 +13,8 @@ controller_manager:
       type: joint_trajectory_controller/JointTrajectoryController
 
 joint_state_broadcaster:
-  ros__parameters: {}
+  ros__parameters:
+    publish_rate: 100.0
 
 joint_trajectory_controller:
   ros__parameters:

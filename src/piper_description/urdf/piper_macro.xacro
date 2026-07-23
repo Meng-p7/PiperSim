@@ -6,8 +6,7 @@
     prefix
     *origin
     include_gripper:=true
-    sim_gazebo:=false
-    sim_gazebo_classic:=false
+    sim_mujoco:=false
     joint_commands_topic:=/joint_commands_topic
     joint_states_topic:=/joint_states_topic
     joint_state_topic_hardware:=false
@@ -40,8 +39,7 @@
       joint_state_topic_hardware="${joint_state_topic_hardware}"
       mock_hardware="${mock_hardware}"
       real_hardware="${real_hardware}"
-      sim_gazebo="${sim_gazebo}"
-      sim_gazebo_classic="${sim_gazebo_classic}"
+      sim_mujoco="${sim_mujoco}"
       joint_commands_topic="${joint_commands_topic}"
       joint_states_topic="${joint_states_topic}"
       initial_positions="${initial_positions}"/>

@@ -3,15 +3,13 @@
 
     <!-- Arguments -->
     <xacro:arg name="prefix" default="" />
-    <xacro:arg name="sim_gazebo" default="false" />
-    <xacro:arg name="sim_gazebo_classic" default="false" />
+    <xacro:arg name="sim_mujoco" default="false" />
     <xacro:arg name="joint_state_topic_hardware" default="false" />
     <xacro:arg name="mock_hardware" default="false" />
     <xacro:arg name="real_hardware" default="false" />
 
     <!-- Import macros for main hardware components -->
     <xacro:include filename="$(find piper_description)/urdf/piper_macro.xacro" />
-    <xacro:include filename="$(find piper_description)/urdf/piper_gazebo_materials.xacro" />
     <!-- initial position for simulation -->
     <xacro:arg name="initial_positions_file" default="$(find piper_description)/config/initial_positions.yaml"/>
     <!-- convert to property to use substitution in function -->
@@ -47,25 +45,10 @@
         prefix="$(arg prefix)"
         joint_state_topic_hardware="$(arg joint_state_topic_hardware)"
         mock_hardware="$(arg mock_hardware)"
-        sim_gazebo="$(arg sim_gazebo)"
-        sim_gazebo_classic="$(arg sim_gazebo_classic)"
+        sim_mujoco="$(arg sim_mujoco)"
         real_hardware="$(arg real_hardware)"
         initial_positions="${xacro.load_yaml(initial_positions_file)}">
       <origin xyz="0 0 0" rpy="0 0 0" />  <!-- position robot in the world -->
     </xacro:load_piper>
-
-    <!-- Load Gazebo plugins for both classic and new Gazebo -->
-    <xacro:if value="$(arg sim_gazebo)">
-        <xacro:include filename="$(find piper_description)/urdf/piper.gazebo.xacro" />
-        <xacro:arg name="simulation_controllers" default="$(find piper_description)/config/gz_controllers.yaml" />
-        <xacro:piper_gazebo_plugins
-            simulation_controllers="$(arg simulation_controllers)"/>
-    </xacro:if>
-    <xacro:if value="$(arg sim_gazebo_classic)">
-        <xacro:include filename="$(find piper_description)/urdf/piper.gazebo.xacro" />
-        <xacro:arg name="simulation_controllers" default="$(find piper_description)/config/gz_controllers.yaml" />
-        <xacro:piper_gazebo_plugins
-            simulation_controllers="$(arg simulation_controllers)"/>
-    </xacro:if>
 
 </robot>
