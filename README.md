@@ -8,11 +8,11 @@ PiperSim 为 Piper 机械臂提供从仿真到真机的完整工具链，目标�
 
 ## 功能特性
 
-- ✅ **MoveIt 集成**：完整的轨迹规划与碰撞检测
-- ✅ **多模式支持**：Mock仿真、MuJoCo物理仿真、真机控制、数字孪生
-- ✅ **MuJoCo 引擎**：高性能物理仿真，实时可视化
-- ✅ **安全机制**：位置突变检测、速度限制、紧急停止
-- ✅ **一键启动**：自动化环境配置脚本
+-  **MoveIt 集成**：完整的轨迹规划与碰撞检测
+-  **多模式支持**：Mock仿真、MuJoCo物理仿真、真机控制、数字孪生
+-  **MuJoCo 引擎**：高性能物理仿真，实时可视化
+-  **安全机制**：位置突变检测、速度限制、紧急停止
+-  **一键启动**：自动化环境配置脚本
 
 ---
 
@@ -89,7 +89,6 @@ source install/setup.bash
 如果需要 MuJoCo 仿真：
 
 ```bash
-# 安装 mujoco_ros2_control（需要约10分钟编译）
 bash install_mujoco_ros2_control_from_source.sh
 ```
 
@@ -109,12 +108,12 @@ source ~/PiperSim/start_real.sh
 
 ### 基本使用
 
-#### Mock 模式（可视化）
+#### Mock 模式（rviz）
 ```bash
 ros2 launch piper_moveit_config demo.launch.py mode:=mock
 ```
 
-#### Sim 模式（物理仿真）
+#### Sim 模式（rviz+mujoco）
 ```bash
 ros2 launch piper_moveit_config demo.launch.py mode:=sim
 ```
@@ -128,17 +127,6 @@ bash src/piper_control/scripts/can_activate.sh can0 1000000
 source ~/PiperSim/start_real.sh
 ros2 launch piper_moveit_config demo.launch.py mode:=real
 ```
-
----
-
-## 操作模式
-
-| 模式 | 说明 | 终端数 | 安全等级 |
-|------|------|--------|---------|
-| **Mock** | RViz 可视化 | 1 | ⭐⭐⭐⭐⭐ |
-| **Sim** | MuJoCo 物理仿真 | 1 | ⭐⭐⭐⭐ |
-| **Real** | 真机控制 | 2 | ⭐⭐ |
-| **Twin** | 数字孪生 | 3 | ⭐ |
 
 **注意**: 确保同一时间只运行一种模式。
 
@@ -169,14 +157,14 @@ MuJoCo 物理仿真，支持真实物理特性。
 ros2 launch piper_moveit_config demo.launch.xml mode:=sim
 ```
 
-**手动控制（GUI 拖动）**
+**手动控制（GUI 拖动,目前有bug,暂不可用）**
 ```bash
 ros2 launch piper_mujoco mujoco_manual_control.launch.py
 ```
 
 ### Real 模式
 
-真机控制，需要严格安全措施。
+真机控制，通过rviz直接控制真机
 
 **启动步骤**
 ```bash
@@ -188,12 +176,11 @@ source ~/PiperSim/start_real.sh
 ros2 launch piper_moveit_config demo.launch.py mode:=real
 ```
 
-
-### Twin 模式
+### Twin 模式（也有bug,等我修复）
 
 数字孪生，仿真与真机同步。
 
-**安全模式（推荐）**
+**单向模式（安全）**
 
 仅 Real → MuJoCo 单向同步
 
@@ -210,7 +197,7 @@ source ~/PiperSim/start_sim.sh
 bash ~/PiperSim/run_twin_safe.sh
 ```
 
-**高级模式（双向同步）**
+**双向模式**
 
 ⚠️ MuJoCo 拖拽会控制真机
 
@@ -244,21 +231,6 @@ ros2_control
     ↓
 机器人系统
 ```
-
----
-
-## 更新日志
-
-### 2026-07-23
-- 统一 mode 参数系统
-- 实现数字孪生安全机制
-- 整合文档结构
-
-### 2026-07-22
-- 迁移 Gazebo → MuJoCo
-- 解决 MuJoCo 集成问题
-
----
 
 ## 许可证
 
