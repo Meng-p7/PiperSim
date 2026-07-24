@@ -88,15 +88,30 @@ def generate_launch_description():
                 PythonLaunchDescriptionSource(os.path.join(pkg_bringup, 'launch', 'real_bringup.launch.py')),
                 launch_arguments={
                     'can': can,
-                    'start_robot_state_publisher': 'false'  # 不启动，由demo.launch.py统一管理
+                    'start_robot_state_publisher': 'false'  # 不启动，由Twin模式统一管理
                 }.items()
             ),
-            # 启动MuJoCo（订阅/joint_states，接收轨迹命令）
+            # 启动MuJoCo + 同步节点（MuJoCo的joint_states发布到/mujoco/joint_states）
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(os.path.join(pkg_mujoco, 'launch', 'twin_mujoco.launch.py'))
             ),
+            # robot_state_publisher：使用真机URDF，监听真机/joint_states发布TF
+            Node(
+                package='robot_state_publisher',
+                executable='robot_state_publisher',
+                name='robot_state_publisher',
+                output='screen',
+                parameters=[
+                    {'robot_description': Command([
+                        'xacro ', os.path.join(pkg_description, 'urdf', 'piper.urdf.xacro'),
+                        ' real_hardware:=true'
+                    ])},
+                    {'use_sim_time': True},
+                ],
+                # 只订阅真机的/joint_states（MuJoCo的重映射到/mujoco/joint_states）
+            ),
             LogInfo(msg='Starting in TWIN mode (Digital twin: Real + MuJoCo)'),
-            LogInfo(msg='Real -> MuJoCo synchronization enabled')
+            LogInfo(msg='Real -> MuJoCo synchronization auto-enabled')
         ], condition=IfCondition(is_twin)),
 
         # Wait for hardware startup

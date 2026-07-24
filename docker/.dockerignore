@@ -1,0 +1,29 @@
+# Git
+.git
+.gitignore
+
+# Build artifacts
+build/
+install/
+log/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.eggs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temporary files
+*.log
+*.tmp
+.DS_Store
+
+# Large files (if any)
+*.bag

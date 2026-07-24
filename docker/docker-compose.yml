@@ -1,0 +1,33 @@
+# PiperSim Docker Compose配置
+# 用法: docker compose up -d
+
+services:
+  pipersim:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: pipersim:humble
+    container_name: pipersim
+    
+    # 图形界面支持
+    environment:
+      - DISPLAY=${DISPLAY}
+      - QT_X11_NO_MITSHM=1
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - ..:/workspace:rw
+    
+    # CAN设备支持（真机控制需要）
+    privileged: true
+    devices:
+      - /dev:/dev
+    
+    # 网络配置
+    network_mode: host
+    
+    # 工作目录
+    working_dir: /workspace
+    
+    # 保持容器运行
+    stdin_open: true
+    tty: true

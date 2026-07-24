@@ -26,8 +26,6 @@ install(DIRECTORY models
 
 # Install Python scripts
 install(PROGRAMS
-  scripts/digital_twin_sync_safe.py
-  scripts/digital_twin_sync_advanced.py
   scripts/digital_twin_sync_realtime.py
   DESTINATION lib/${PROJECT_NAME}
 )

@@ -39,57 +39,143 @@ PiperSim/
 
 ## 环境要求
 
-- Ubuntu 22.04
-- ROS 2 Humble
-- Python 3.10 + conda
-- MuJoCo 3.4.0（作者用的3.8.0）
+- **操作系统**：Ubuntu 22.04（推荐）或 Docker
+- **ROS版本**：ROS 2 Humble
+- **Python**：3.10 + conda
+- **MuJoCo**：3.4.0+
+
+> **跨版本说明**：如果你使用的是 Ubuntu 24.04 或 ROS 2 Jazzy，请使用下方的 Docker 方案。
 
 ---
 
 ## 安装
 
-### 1. 克隆项目
+### 方式一：Docker（推荐跨版本用户）
+
+适合 Ubuntu 24.04 / ROS 2 Jazzy 用户，或希望快速体验的用户。
+
+#### 1. 安装 Docker
+```bash
+# 安装 Docker
+sudo apt-get update
+sudo apt-get install -y docker.io docker-compose-plugin
+
+# 添加当前用户到docker组（避免每次sudo）
+sudo usermod -aG docker $USER
+# 注销后重新登录生效
+```
+
+#### 2. 允许容器访问图形界面
+```bash
+# 允许Docker访问X11
+xhost +local:docker
+```
+
+#### 3. 构建并运行容器
+```bash
+cd PiperSim/docker
+docker compose up -d
+
+# 进入容器
+docker exec -it pipersim bash
+```
+
+#### 4. 在容器内编译项目
+```bash
+# 进入容器后执行
+cd /workspace
+colcon build --symlink-install
+source install/setup.bash
+```
+
+#### 5. 安装 MuJoCo ROS2 支持（容器内）
+
+**必选**（如果使用 Sim 或 Twin 模式）
+
+```bash
+bash install_mujoco_ros2_control_from_source.sh
+```
+
+> 如果只用 Mock 模式，可以跳过。
+
+---
+
+### 方式二：原生安装（Ubuntu 22.04）
+
+适合 Ubuntu 22.04 用户，推荐作为主力开发环境。
+
+#### 1. 安装 ROS 2 Humble
+
+参考官方文档：https://docs.ros.org/en/humble/Installation/Ubuntu-Install-Debians.html
+
+#### 2. 安装系统依赖
+```bash
+sudo apt install -y \
+  ros-humble-moveit \
+  ros-humble-moveit-setup-assistant \
+  python3-colcon-common-extensions \
+  ethtool \
+  can-utils \
+  python3-pip
+```
+
+#### 3. 创建 Conda 环境并安装依赖
+```bash
+# 创建环境
+conda create -n piper_sdk python=3.10 -y
+conda activate piper_sdk
+
+# 安装Python依赖
+pip install mujoco numpy
+```
+
+**Python依赖说明**：
+| 包名 | 版本 | 用途 |
+|------|------|------|
+| `mujoco` | ≥3.4.0 | MuJoCo物理仿真引擎 |
+| `numpy` | ≥1.20 | 数值计算基础库 |
+
+#### 4. 克隆项目
 ```bash
 git clone https://github.com/your-username/PiperSim.git
 cd PiperSim
 ```
 
-### 2. 安装依赖
-```bash
-# 安装 ROS 2 依赖
-sudo apt update
-sudo apt install -y \
-  ros-humble-moveit \
-  ros-humble-moveit-setup-assistant \
-  python3-colcon-common-extensions
-
-# 创建 conda 环境
-conda create -n piper_sdk python=3.10 -y
-conda activate piper_sdk
-```
-
-### 3. 编译项目
+#### 5. 编译项目
 ```bash
 # 激活环境
 source /opt/ros/humble/setup.bash
 conda activate piper_sdk
 
-# 清理旧编译（首次编译可跳过）
-rm -rf build/ install/ log/
-
 # 编译
 colcon build --symlink-install
 
-# Source 工作空间
+# Source工作空间
 source install/setup.bash
 ```
 
-### 4. 安装 MuJoCo 支持（可选）
+#### 6. 安装 MuJoCo ROS2 支持
 
-如果需要 MuJoCo 仿真：
+**必选**（如果使用 Sim 或 Twin 模式）
 
 ```bash
 bash install_mujoco_ros2_control_from_source.sh
+```
+
+> **说明**：此脚本会编译安装 `mujoco_ros2_control` 包，耗时约5-10分钟。
+> 
+> 如果只用 Mock 模式或 Real 模式，可以跳过此步骤。
+
+---
+
+### 环境变量配置（可选）
+
+添加到 `~/.bashrc` 以简化启动：
+
+```bash
+# PiperSim快捷命令
+alias piper_sim='source ~/PiperSim/start_sim.sh'
+alias piper_real='source ~/PiperSim/start_real.sh'
 ```
 
 ---
@@ -98,13 +184,21 @@ bash install_mujoco_ros2_control_from_source.sh
 
 ### 环境设置
 
+启动脚本会自动完成以下操作：
+- 激活 `piper_sdk` conda 环境
+- Source ROS 2 Humble
+- Source 编译后的工作空间
+- Source mujoco_ros2_control（如果已安装）
+
 ```bash
-# 仿真环境
+# 仿真环境（Mock/Sim/Twin模式）
 source ~/PiperSim/start_sim.sh
 
-# 真机环境
+# 真机环境（Real模式）
 source ~/PiperSim/start_real.sh
 ```
+
+> **注意**：必须先完成安装步骤，启动脚本只负责环境配置，不会安装依赖。
 
 ### 基本使用
 
@@ -120,11 +214,6 @@ ros2 launch piper_moveit_config demo.launch.py mode:=sim
 
 #### Real 模式（真机控制）
 ```bash
-# Terminal 1
-bash src/piper_control/scripts/can_activate.sh can0 1000000
-
-# Terminal 2
-source ~/PiperSim/start_real.sh
 ros2 launch piper_moveit_config demo.launch.py mode:=real
 ```
 
@@ -140,7 +229,7 @@ ros2 launch piper_moveit_config demo.launch.py mode:=real
 
 ```bash
 source ~/PiperSim/start_sim.sh
-ros2 launch piper_moveit_config demo.launch.xml mode:=mock
+ros2 launch piper_moveit_config demo.launch.py mode:=mock
 ```
 
 在 RViz 的 MotionPlanning 面板：
@@ -152,14 +241,9 @@ ros2 launch piper_moveit_config demo.launch.xml mode:=mock
 
 MuJoCo 物理仿真，支持真实物理特性。
 
-**标准模式（MoveIt 规划）**
 ```bash
-ros2 launch piper_moveit_config demo.launch.xml mode:=sim
-```
-
-**手动控制（GUI 拖动,目前有bug,暂不可用）**
-```bash
-ros2 launch piper_mujoco mujoco_manual_control.launch.py
+source ~/PiperSim/start_sim.sh
+ros2 launch piper_moveit_config demo.launch.py mode:=sim
 ```
 
 ### Real 模式
@@ -168,50 +252,77 @@ ros2 launch piper_mujoco mujoco_manual_control.launch.py
 
 **启动步骤**
 ```bash
-# Terminal 1: CAN 激活
-bash src/piper_control/scripts/can_activate.sh can0 1000000
-
-# Terminal 2: 控制器
 source ~/PiperSim/start_real.sh
+bash src/piper_control/scripts/can_activate.sh can0 1000000
 ros2 launch piper_moveit_config demo.launch.py mode:=real
 ```
 
-### Twin 模式（也有bug,等我修复）
+### Twin 模式（数字孪生）
 
-数字孪生，仿真与真机同步。
+数字孪生：真机运动 → MuJoCo仿真实时跟随
 
-**单向模式（安全）**
+**架构**：真机 `/joint_states` → 同步脚本 → MuJoCo Python API → MuJoCo GUI
 
-仅 Real → MuJoCo 单向同步
+**启动步骤**
+```bash
+source ~/PiperSim/start_real.sh
+bash src/piper_control/scripts/can_activate.sh can0 1000000
+ros2 launch piper_moveit_config demo.launch.py mode:=twin
+```
+
+启动后会自动打开：
+- **RViz**：MoveIt规划界面
+- **MuJoCo窗口**：实时跟随真机运动
+
+**测试脚本**（可选）
+```bash
+# Terminal 3: 运行测试（需等待Twin模式完全启动，约15秒）
+source ~/PiperSim/start_sim.sh
+python3 ~/PiperSim/test_twin.py
+```
+
+---
+
+### 手眼标定（两个月没测试过了，更改后不一定行）
+
+相机与机械臂的手眼标定，支持仿真和真机两种模式。
+
+#### 仿真模式（自动采样）
 
 ```bash
-# Terminal 1: CAN激活
+source ~/PiperSim/start_sim.sh
+ros2 launch piper_calibration calibration.launch.py mode:=sim
+```
+
+启动后：
+- 自动生成随机关节姿态（使用forward_position_controller）
+- 自动采集标定点
+- 计算手眼变换矩阵
+
+#### 真机模式（RealSense + 手动采样）
+
+```bash
+# Terminal 1: 激活CAN
+source ~/PiperSim/start_real.sh
 bash src/piper_control/scripts/can_activate.sh can0 1000000
 
-# Terminal 2: 真机控制器
+# Terminal 2: 启动标定
 source ~/PiperSim/start_real.sh
-ros2 launch piper_moveit_config demo.launch.py mode:=twin
-
-# Terminal 3: 同步脚本
-source ~/PiperSim/start_sim.sh
-bash ~/PiperSim/run_twin_safe.sh
+ros2 launch piper_calibration calibration.launch.py mode:=real
 ```
 
-**双向模式**
+启动后：
+1. 手动移动机械臂到不同姿态
+2. 确保标定板在相机视野内
+3. 按提示采集标定点
+4. 自动计算手眼变换
 
-⚠️ MuJoCo 拖拽会控制真机
+#### 验证标定结果
 
 ```bash
-# Terminal 1-2 同上
-# Terminal 3
-bash ~/PiperSim/run_twin_advanced.py
+# 使用MoveIt验证
+python3 ~/PiperSim/src/piper_calibration/piper_calibration/verify_calibration_moveit.py
 ```
-
-**安全机制**：
-- 位置突变检测（>0.1rad）
-- 斜坡限速（0.5 rad/s）
-- 低通滤波平滑
-- 紧急停止
 
 ---
 

@@ -9,7 +9,7 @@ from launch.actions import (
     TimerAction,
 )
 from launch.substitutions import Command, PathJoinSubstitution, LaunchConfiguration
-from launch.conditions import UnlessCondition
+from launch.conditions import IfCondition
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 from ament_index_python.packages import get_package_share_directory
@@ -43,7 +43,7 @@ def generate_launch_description():
         name="robot_state_publisher",
         output="screen",
         parameters=[{"robot_description": robot_description}],
-        condition=UnlessCondition(start_rsp),
+        condition=IfCondition(start_rsp),
     )
 
     # ros2_control 控制管理器（真机硬件）
