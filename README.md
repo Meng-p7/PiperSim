@@ -67,8 +67,11 @@ sudo usermod -aG docker $USER
 
 #### 2. 允许容器访问图形界面
 ```bash
-# 允许Docker访问X11
+# 允许Docker访问X11（每次重启X server后需重新执行）
 xhost +local:docker
+
+# 或者加入 ~/.bashrc 自动执行（推荐）
+echo "xhost +local:docker > /dev/null 2>&1" >> ~/.bashrc
 ```
 
 #### 3. 构建并运行容器
@@ -85,7 +88,7 @@ docker exec -it pipersim bash
 # 进入容器后执行
 cd /workspace
 colcon build --symlink-install
-source install/setup.bash
+# 注意：entrypoint.sh 会自动 source install/setup.bash，无需手动执行
 ```
 
 #### 5. 安装 MuJoCo ROS2 支持（容器内）
