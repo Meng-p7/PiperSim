@@ -1,8 +1,8 @@
 #!/bin/bash
 # Docker容器入口点脚本
 
-# Source ROS 2
-source /opt/ros/humble/setup.bash
+# Source ROS 2 Jazzy
+source /opt/ros/jazzy/setup.bash
 
 # 激活conda环境
 source /opt/conda/etc/profile.d/conda.sh
@@ -14,7 +14,7 @@ if [ -f "/workspace/install/setup.bash" ]; then
 fi
 
 # 如果mujoco_ros2_control已安装，source它
-# 注意：mujoco_ros2_control默认安装在 ~/mujoco_ros2_control_ws
+# Jazzy版本可以直接apt安装，会自动包含在ROS环境中
 MUJOCO_WS="/root/mujoco_ros2_control_ws"
 if [ -f "$MUJOCO_WS/install/setup.bash" ]; then
     source $MUJOCO_WS/install/setup.bash

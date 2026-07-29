@@ -6,16 +6,27 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    image: pipersim:humble
+    image: pipersim:jazzy
     container_name: pipersim
-    
+
     # 图形界面支持
     environment:
       - DISPLAY=${DISPLAY}
       - QT_X11_NO_MITSHM=1
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
     volumes:
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
       - ..:/workspace:rw
+
+    # NVIDIA GPU支持
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     
     # CAN设备支持（真机控制需要）
     privileged: true

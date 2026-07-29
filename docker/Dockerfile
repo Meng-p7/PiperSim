@@ -1,14 +1,14 @@
 # PiperSim Docker Image
-# 基于 ROS 2 Humble 的 Piper 机械臂仿真环境
+# 基于 ROS 2 Jazzy 的 Piper机械臂仿真环境（Ubuntu 24.04）
 
-FROM osrf/ros:humble-desktop
+FROM osrf/ros:jazzy-desktop
 
 # 设置环境变量
 ENV DEBIAN_FRONTEND=noninteractive
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
 
-# 安装系统依赖
+# 安装系统依赖（包括Orbbec SDK依赖）
 RUN apt-get update && apt-get install -y \
     python3-pip \
     python3-colcon-common-extensions \
@@ -16,6 +16,9 @@ RUN apt-get update && apt-get install -y \
     can-utils \
     git \
     vim \
+    libgflags-dev \
+    nlohmann-json3-dev \
+    libgoogle-glog-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # 安装 Miniconda

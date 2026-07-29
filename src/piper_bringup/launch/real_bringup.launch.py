@@ -9,7 +9,7 @@ from launch.actions import (
     TimerAction,
 )
 from launch.substitutions import Command, PathJoinSubstitution, LaunchConfiguration
-from launch.conditions import IfCondition
+from launch.conditions import IfCondition, UnlessCondition
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 from ament_index_python.packages import get_package_share_directory
@@ -25,6 +25,14 @@ def generate_launch_description():
         description='Whether to start robot_state_publisher (false in Twin mode)'
     )
     start_rsp = LaunchConfiguration('start_robot_state_publisher')
+
+    # 参数：是否启动轨迹控制器（标定模式时可禁用，允许手动拖动）
+    calibration_mode_arg = DeclareLaunchArgument(
+        'calibration_mode',
+        default_value='false',
+        description='If true, only start joint_state_broadcaster (no trajectory control)'
+    )
+    calibration_mode = LaunchConfiguration('calibration_mode')
 
     # 加载 URDF（xacro），使用真机模式
     xacro_file = PathJoinSubstitution([piper_desc_share, "urdf", "piper.urdf.xacro"])
@@ -76,6 +84,7 @@ def generate_launch_description():
         name="spawner_joint_trajectory_controller",
         arguments=["joint_trajectory_controller", "--controller-manager-timeout", "30", "-c", "/controller_manager"],
         output="screen",
+        condition=UnlessCondition(calibration_mode),  # 标定模式下不启动
     )
 
     spawn_gripper = Node(
@@ -84,10 +93,12 @@ def generate_launch_description():
         name="spawner_gripper_controller",
         arguments=["gripper_controller", "--controller-manager-timeout", "30", "-c", "/controller_manager"],
         output="screen",
+        condition=UnlessCondition(calibration_mode),  # 标定模式下不启动
     )
 
     return LaunchDescription([
         start_rsp_arg,
+        calibration_mode_arg,
         robot_state_publisher,
         controller_manager,
         spawn_joint_broadcaster,

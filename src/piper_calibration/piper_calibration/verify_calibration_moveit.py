@@ -292,7 +292,7 @@ class MoveItClient(Node):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--result-file", default="real_eye_in_hand_result.yaml")
+    parser.add_argument("--result-file", default="real_eye_to_hand_result_samples.yaml")
     parser.add_argument("--tag-id", type=int, default=0)
     parser.add_argument("--tag-size", type=float, default=0.057)
     args = parser.parse_args()

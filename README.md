@@ -39,12 +39,14 @@ PiperSim/
 
 ## 环境要求
 
-- **操作系统**：Ubuntu 22.04（推荐）或 Docker
-- **ROS版本**：ROS 2 Humble
+- **操作系统**：Ubuntu 24.04（推荐，使用 Docker 或 ROS 2 Jazzy）或 Ubuntu 22.04（ROS 2 Humble）
+- **ROS版本**：ROS 2 Jazzy（Ubuntu 24.04）或 ROS 2 Humble（Ubuntu 22.04）
 - **Python**：3.10 + conda
 - **MuJoCo**：3.4.0+
 
-> **跨版本说明**：如果你使用的是 Ubuntu 24.04 或 ROS 2 Jazzy，请使用下方的 Docker 方案。
+> **跨版本说明**：
+> - Ubuntu 24.04 用户请使用 ROS 2 Jazzy（推荐）或 Docker 方案
+> - Ubuntu 22.04 用户请使用 ROS 2 Humble 或 Docker 方案
 
 ---
 
@@ -55,6 +57,7 @@ PiperSim/
 适合 Ubuntu 24.04 / ROS 2 Jazzy 用户，或希望快速体验的用户。
 
 #### 1. 安装 Docker
+
 ```bash
 # 安装 Docker
 sudo apt-get update
@@ -65,7 +68,28 @@ sudo usermod -aG docker $USER
 # 注销后重新登录生效
 ```
 
-#### 2. 允许容器访问图形界面
+#### 2. 安装 NVIDIA Container Toolkit（仅限GPU用户）
+
+**如果您的电脑有 NVIDIA 独立显卡并希望使用 GPU 加速，请执行以下步骤：**
+
+```bash
+# 安装 NVIDIA Container Toolkit
+curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg \
+  && curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
+    sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
+    sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+
+sudo apt-get update
+sudo apt-get install -y nvidia-container-toolkit
+sudo nvidia-ctk runtime configure --runtime=docker
+sudo systemctl restart docker
+```
+
+> **注意**：
+> - 如果没有独立显卡（如集成显卡），可以跳过此步骤，Docker 容器仍可正常运行
+> - GPU 加速主要用于 MuJoCo 仿真等需要渲染的场景，对手眼标定等任务影响不大
+
+#### 3. 允许容器访问图形界面
 ```bash
 # 允许Docker访问X11（每次重启X server后需重新执行）
 xhost +local:docker
@@ -74,7 +98,7 @@ xhost +local:docker
 echo "xhost +local:docker > /dev/null 2>&1" >> ~/.bashrc
 ```
 
-#### 3. 构建并运行容器
+#### 4. 构建并运行容器
 ```bash
 cd PiperSim/docker
 docker compose up -d
@@ -83,7 +107,7 @@ docker compose up -d
 docker exec -it pipersim bash
 ```
 
-#### 4. 在容器内编译项目
+#### 5. 在容器内编译项目
 ```bash
 # 进入容器后执行
 cd /workspace
@@ -91,9 +115,19 @@ colcon build --symlink-install
 # 注意：entrypoint.sh 会自动 source install/setup.bash，无需手动执行
 ```
 
-#### 5. 安装 MuJoCo ROS2 支持（容器内）
+#### 6. 安装 MuJoCo ROS2 支持（容器内）
 
 **必选**（如果使用 Sim 或 Twin 模式）
+
+**Jazzy（Ubuntu 24.04）- 推荐：**
+
+```bash
+# Jazzy 版本可直接 apt 安装（无需编译，几秒钟）
+apt-get update
+apt-get install -y ros-jazzy-mujoco-ros2-control ros-jazzy-mujoco-ros2-control-demos
+```
+
+**Humble（Ubuntu 22.04）- 需要源码编译：**
 
 ```bash
 bash install_mujoco_ros2_control_from_source.sh
@@ -286,9 +320,9 @@ python3 ~/PiperSim/test_twin.py
 
 ---
 
-### 手眼标定（两个月没测试过了，更改后不一定行）
+### 手眼标定
 
-相机与机械臂的手眼标定，支持仿真和真机两种模式。
+相机与机械臂的手眼标定，支持仿真和真机两种模式，支持 eye-in-hand 和 eye-to-hand 两种标定方式。
 
 #### 仿真模式（自动采样）
 
@@ -302,23 +336,60 @@ ros2 launch piper_calibration calibration.launch.py mode:=sim
 - 自动采集标定点
 - 计算手眼变换矩阵
 
-#### 真机模式（RealSense + 手动采样）
+#### 真机模式（手动采样）
+
+> **重要**：真机模式需要**3个终端**，必须按顺序启动。
+
+**标定模式说明**：
+- 使用 `calibration_mode:=true` 参数启动真机硬件时，**只发布关节状态，不启动轨迹控制器**
+- 这样可以手动示教拖动机械臂，同时采集精确的关节角度
+
+**Eye-in-Hand 模式**（相机安装在机械臂末端）：
 
 ```bash
-# Terminal 1: 激活CAN
+# Terminal 1: 启动相机（RealSense 或 Orbbec）
+# RealSense:
+ros2 launch realsense2_camera rs_launch.py
+# 或 Orbbec Femto Bolt:
+source ~/PiperSim/install/setup.bash
+ros2 launch orbbec_camera femto_bolt.launch.py
+
+# Terminal 2: 激活CAN并启动硬件（标定模式，不启动轨迹控制器）
 source ~/PiperSim/start_real.sh
 bash src/piper_control/scripts/can_activate.sh can0 1000000
+ros2 launch piper_bringup real_bringup.launch.py calibration_mode:=true
 
-# Terminal 2: 启动标定
-source ~/PiperSim/start_real.sh
-ros2 launch piper_calibration calibration.launch.py mode:=real
+# Terminal 3: 启动标定节点
+source ~/PiperSim/install/setup.bash
+ros2 launch piper_calibration calibration.launch.py mode:=real eye_mode:=eye_in_hand
 ```
 
-启动后：
-1. 手动移动机械臂到不同姿态
-2. 确保标定板在相机视野内
-3. 按提示采集标定点
-4. 自动计算手眼变换
+**Eye-to-Hand 模式**（相机固定在外部，标定板固定在机械臂末端）：
+
+```bash
+# Terminal 1: 启动相机（推荐 Orbbec Femto Bolt）
+source ~/PiperSim/install/setup.bash
+ros2 launch orbbec_camera femto_bolt.launch.py
+
+# Terminal 2: 激活CAN并启动硬件（标定模式，不启动轨迹控制器）
+source ~/PiperSim/start_real.sh
+bash src/piper_control/scripts/can_activate.sh can0 1000000
+ros2 launch piper_bringup real_bringup.launch.py calibration_mode:=true
+
+# Terminal 3: 启动标定节点
+source ~/PiperSim/install/setup.bash
+ros2 launch piper_calibration calibration.launch.py mode:=real eye_mode:=eye_to_hand
+```
+
+启动后操作步骤：
+1. **手动示教拖动机械臂**到不同姿态（建议15-25个不同位置）
+2. 确保标定板在相机视野内且清晰可见
+3. 在标定窗口按空格键采集标定点
+4. 采集完成后自动计算手眼变换
+
+标定结果保存位置：
+- Eye-in-Hand: `data/real_eye_in_hand_result.yaml`
+- Eye-to-Hand: `data/real_eye_to_hand_result.yaml`
 
 #### 验证标定结果
 

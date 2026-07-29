@@ -270,7 +270,7 @@ class CalibrationNode(Node):
         self._finish_calibration(collected)
 
     # ===================================================================
-    # Real robot mode (pyrealsense2 + spacebar capture)
+    # Real robot mode (ROS话题订阅，兼容所有相机)
     # ===================================================================
 
     def run_real_robot(self):
@@ -284,36 +284,24 @@ class CalibrationNode(Node):
             callback_group=self._cb_group,
         )
 
-        # open RealSense camera via pyrealsense2
-        import pyrealsense2 as rs
+        # 统一使用ROS话题订阅相机（兼容RealSense和Orbbec）
+        # 确保相机驱动节点已启动（如：ros2 launch orbbec_camera femto_bolt.launch.py）
+        self.get_logger().info("Subscribing to camera topics via ROS...")
+        self.get_logger().info(f"Camera topic: {self.camera_topic}")
+        self.get_logger().info(f"Camera info topic: {self.camera_info_topic}")
 
-        pipeline = rs.pipeline()
-        config = rs.config()
-        config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
-        pipeline.start(config)
-        self.get_logger().info("RealSense camera opened")
+        self._subscribe_camera_ros()
 
-        # get camera intrinsics immediately after starting
-        profile = pipeline.get_active_profile()
-        color_stream = profile.get_stream(rs.stream.color)
-        intrinsics = color_stream.as_video_stream_profile().get_intrinsics()
-        self._camera_matrix = np.array([
-            [intrinsics.fx, 0, intrinsics.ppx],
-            [0, intrinsics.fy, intrinsics.ppy],
-            [0, 0, 1],
-        ])
-        self._dist_coeffs = np.array(intrinsics.coeffs)
-
-        # wait for first frame and joint states
-        self.get_logger().info("Waiting for joint states...")
-        for _ in range(100):
-            if self._get_current_joint_positions() is not None:
-                break
-            time.sleep(0.1)
+        # wait for camera and joint states
+        self.get_logger().info("Waiting for camera and joint states...")
+        if not self._wait_for_camera_ros(timeout=30.0):
+            self.get_logger().error("Camera timeout, please ensure camera node is running")
+            self.get_logger().error("  For Orbbec: ros2 launch orbbec_camera femto_bolt.launch.py")
+            self.get_logger().error("  For RealSense: ros2 launch realsense2_camera rs_launch.py")
+            return
 
         if self._get_current_joint_positions() is None:
-            self.get_logger().warn(
-                "No joint states received yet, continuing anyway...")
+            self.get_logger().warn("No joint states received yet, continuing anyway...")
 
         # prepare image save directory
         os.makedirs(self._image_save_dir, exist_ok=True)
@@ -331,12 +319,13 @@ class CalibrationNode(Node):
             f"Press Q or Esc to quit early (need >= 3 valid samples).")
 
         while len(collected_images) < self.num_poses:
-            frames = pipeline.wait_for_frames()
-            color_frame = frames.get_color_frame()
-            if not color_frame:
-                continue
+            # 使用ROS话题的图像
+            with self._image_lock:
+                if self._latest_image is None:
+                    time.sleep(0.1)
+                    continue
+                frame = self._latest_image.copy()
 
-            frame = np.asanyarray(color_frame.get_data())
             display = frame.copy()
 
             # overlay status
@@ -380,7 +369,6 @@ class CalibrationNode(Node):
                 break
 
         cv2.destroyAllWindows()
-        pipeline.stop()
 
         if len(collected_images) < 3:
             self.get_logger().error(
@@ -462,15 +450,26 @@ class CalibrationNode(Node):
         self.get_logger().info(f"Error: {error:.8f}")
 
         self._calibrator.save_result(self.result_file)
+
+        # 根据标定模式设置TF父子帧
+        # eye_in_hand: 结果是 ee_link -> camera_frame (相机安装在末端)
+        # eye_to_hand: 结果是 base_link -> camera_link (相机固定在外部)
+        if self.eye_mode == "eye_to_hand":
+            parent_frame = self.base_frame
+            child_frame = self.camera_frame
+        else:
+            parent_frame = self.ee_link
+            child_frame = self.camera_frame
+
         self._calibrator.publish_tf(
-            parent_frame=self.ee_link,
-            child_frame=self.camera_frame,
+            parent_frame=parent_frame,
+            child_frame=child_frame,
         )
 
         self.get_logger().info("=== Calibration complete ===")
         self.get_logger().info(f"Result saved to {self.result_file}")
         self.get_logger().info(
-            f"Static TF: {self.ee_link} -> {self.camera_frame}")
+            f"Static TF: {parent_frame} -> {child_frame}")
 
     # ===================================================================
     # Entry
