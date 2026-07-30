@@ -14,13 +14,14 @@ def generate_launch_description():
 
     # 启动参数
     use_sim_time = LaunchConfiguration("use_sim_time", default="true")
-    gui = LaunchConfiguration("gui", default="true")  # 启用MuJoCo GUI窗口
+    headless = LaunchConfiguration("headless", default="false")
 
     # 加载 URDF（xacro），使用 MuJoCo 仿真模式
     robot_description = Command([
         "xacro ",
         PathJoinSubstitution([piper_desc_share, "urdf", "piper.urdf.xacro"]),
         " sim_mujoco:=true",
+        " mujoco_headless:=", headless,
     ])
 
     # 机器人状态发布器
@@ -46,9 +47,14 @@ def generate_launch_description():
         executable="ros2_control_node",
         output="screen",
         parameters=[
-            {"robot_description": robot_description},
             {"use_sim_time": use_sim_time},
             controllers_yaml,
+        ],
+        # Humble subscribes on ~/robot_description; Jazzy uses
+        # robot_description. Both are fed by robot_state_publisher.
+        remappings=[
+            ("~/robot_description", "/robot_description"),
+            ("robot_description", "/robot_description"),
         ],
     )
 
@@ -60,6 +66,7 @@ def generate_launch_description():
             "joint_state_broadcaster",
             "--controller-manager-timeout", "30",
             "-c", "/controller_manager",
+            "--param-file", controllers_yaml,
         ],
         output="screen",
         parameters=[{"use_sim_time": use_sim_time}],
@@ -72,6 +79,7 @@ def generate_launch_description():
             "joint_trajectory_controller",
             "--controller-manager-timeout", "30",
             "-c", "/controller_manager",
+            "--param-file", controllers_yaml,
         ],
         output="screen",
         parameters=[{"use_sim_time": use_sim_time}],
@@ -84,6 +92,7 @@ def generate_launch_description():
             "gripper_controller",
             "--controller-manager-timeout", "30",
             "-c", "/controller_manager",
+            "--param-file", controllers_yaml,
         ],
         output="screen",
         parameters=[{"use_sim_time": use_sim_time}],
@@ -91,7 +100,12 @@ def generate_launch_description():
 
     return LaunchDescription([
         DeclareLaunchArgument("use_sim_time", default_value="true"),
-        DeclareLaunchArgument("gui", default_value="true", description="Enable MuJoCo GUI window"),
+        DeclareLaunchArgument(
+            "headless",
+            default_value="false",
+            choices=["true", "false"],
+            description="Run MuJoCo without its GUI window",
+        ),
 
         robot_state_publisher,
         ros2_control_node,

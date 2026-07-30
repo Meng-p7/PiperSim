@@ -1,202 +1,168 @@
-import cv2
-import cv2.aruco as aruco
-import numpy as np
+"""Calibration target detection with OpenCV 4.x/5.x API compatibility."""
+
 from typing import Optional
 
+import cv2
+import numpy as np
 
-_ARUCO_DICT_MAP = {
-    "DICT_5X5_100": cv2.aruco.DICT_5X5_100,
-    "DICT_5X5_250": cv2.aruco.DICT_5X5_250,
-    "DICT_6X6_250": cv2.aruco.DICT_6X6_250,
-    "DICT_4X4_100": cv2.aruco.DICT_4X4_100,
-    "DICT_7X7_100": cv2.aruco.DICT_7X7_100,
-    "DICT_APRILTAG_16H5": cv2.aruco.DICT_APRILTAG_16H5,
-    "DICT_APRILTAG_25H9": cv2.aruco.DICT_APRILTAG_25H9,
-    "DICT_APRILTAG_36H10": cv2.aruco.DICT_APRILTAG_36H10,
-    "DICT_APRILTAG_36H11": cv2.aruco.DICT_APRILTAG_36H11,
-}
+
+_DICT_NAMES = (
+    "DICT_4X4_100", "DICT_5X5_100", "DICT_5X5_250", "DICT_6X6_250",
+    "DICT_7X7_100", "DICT_APRILTAG_16H5", "DICT_APRILTAG_25H9",
+    "DICT_APRILTAG_36H10", "DICT_APRILTAG_36H11",
+)
+_DICT_MAP = {name: getattr(cv2.aruco, name) for name in _DICT_NAMES
+             if hasattr(cv2.aruco, name)}
 
 
 class BoardDetector:
     def __init__(
         self,
-        board_type: str = "charuco",
+        board_type: str = "aruco",
         charuco_rows: int = 9,
         charuco_cols: int = 14,
-        charuco_square_length: float = 0.03,
-        charuco_marker_length: float = 0.022,
-        aruco_dict_name: str = "DICT_5X5_100",
+        charuco_square_length: float = 0.02,
+        charuco_marker_length: float = 0.015,
+        aruco_dict_name: str = "DICT_APRILTAG_36H11",
         chessboard_rows: int = 10,
         chessboard_cols: int = 12,
-        aruco_marker_length: float = 0.05,  # 单个ArUco标记尺寸（米）
-        aruco_marker_id: int = 0,  # 单个ArUco标记ID
+        aruco_marker_length: float = 0.057,
+        aruco_marker_id: int = 0,
     ):
+        if board_type not in ("aruco", "charuco", "chessboard"):
+            raise ValueError("board_type must be aruco, charuco, or chessboard")
+        if aruco_dict_name not in _DICT_MAP:
+            raise ValueError(f"Unsupported ArUco dictionary: {aruco_dict_name}")
+
         self.board_type = board_type
-        self.aruco_marker_length = aruco_marker_length
-        self.aruco_marker_id = aruco_marker_id
+        self.aruco_marker_length = float(aruco_marker_length)
+        self.aruco_marker_id = int(aruco_marker_id)
+        self.charuco_rows = int(charuco_rows)
+        self.charuco_cols = int(charuco_cols)
+        self.charuco_square_length = float(charuco_square_length)
+        self.charuco_marker_length = float(charuco_marker_length)
+        self.chessboard_rows = int(chessboard_rows)
+        self.chessboard_cols = int(chessboard_cols)
+        self.aruco_dict = cv2.aruco.getPredefinedDictionary(_DICT_MAP[aruco_dict_name])
 
-        aruco_dict_id = _ARUCO_DICT_MAP.get(aruco_dict_name, cv2.aruco.DICT_5X5_100)
-        self.aruco_dict = aruco.getPredefinedDictionary(aruco_dict_id)
-
-        # OpenCV 5.0.0+: 使用ArucoDetector
-        detector_params = cv2.aruco.DetectorParameters()
-        self.aruco_detector = cv2.aruco.ArucoDetector(self.aruco_dict, detector_params)
-
-        self.charuco_rows = charuco_rows
-        self.charuco_cols = charuco_cols
-        self.charuco_square_length = charuco_square_length
-        self.charuco_marker_length = charuco_marker_length
-        self.chessboard_rows = chessboard_rows
-        self.chessboard_cols = chessboard_cols
-
-        # OpenCV 5.0.0+: 使用CharucoBoard类创建board
-        self.charuco_board = cv2.aruco.CharucoBoard(
-            (self.charuco_cols, self.charuco_rows),  # size as tuple
-            self.charuco_square_length,
-            self.charuco_marker_length,
-            self.aruco_dict,
+        if hasattr(cv2.aruco, "DetectorParameters"):
+            self.detector_params = cv2.aruco.DetectorParameters()
+        else:
+            self.detector_params = cv2.aruco.DetectorParameters_create()
+        self.aruco_detector = (
+            cv2.aruco.ArucoDetector(self.aruco_dict, self.detector_params)
+            if hasattr(cv2.aruco, "ArucoDetector") else None
         )
-        
-        # 创建CharucoDetector (OpenCV 5.0.0+)
-        charuco_params = cv2.aruco.CharucoParameters()
-        charuco_params.tryRefineMarkers = True
-        self.charuco_detector = cv2.aruco.CharucoDetector(self.charuco_board, charuco_params)
 
-    def detect(self, image: np.ndarray, camera_matrix: np.ndarray, dist_coeffs: np.ndarray) -> Optional[np.ndarray]:
+        if hasattr(cv2.aruco, "CharucoBoard"):
+            self.charuco_board = cv2.aruco.CharucoBoard(
+                (self.charuco_cols, self.charuco_rows),
+                self.charuco_square_length,
+                self.charuco_marker_length,
+                self.aruco_dict,
+            )
+        else:
+            self.charuco_board = cv2.aruco.CharucoBoard_create(
+                self.charuco_cols,
+                self.charuco_rows,
+                self.charuco_square_length,
+                self.charuco_marker_length,
+                self.aruco_dict,
+            )
+        self.charuco_detector = (
+            cv2.aruco.CharucoDetector(self.charuco_board)
+            if hasattr(cv2.aruco, "CharucoDetector") else None
+        )
+
+    def _detect_markers(self, gray):
+        if self.aruco_detector is not None:
+            return self.aruco_detector.detectMarkers(gray)
+        return cv2.aruco.detectMarkers(
+            gray, self.aruco_dict, parameters=self.detector_params
+        )
+
+    def detect(self, image: np.ndarray, K: np.ndarray, D: np.ndarray) -> Optional[np.ndarray]:
+        if self.board_type == "aruco":
+            return self._detect_single_aruco(image, K, D)
         if self.board_type == "charuco":
-            return self._detect_charuco(image, camera_matrix, dist_coeffs)
-        elif self.board_type == "chessboard":
-            return self._detect_chessboard(image, camera_matrix, dist_coeffs)
-        elif self.board_type == "aruco":
-            return self._detect_single_aruco(image, camera_matrix, dist_coeffs)
-        return None
+            return self._detect_charuco(image, K, D)
+        return self._detect_chessboard(image, K, D)
 
-    def _detect_charuco(self, image: np.ndarray, K: np.ndarray, D: np.ndarray) -> Optional[np.ndarray]:
+    def _detect_single_aruco(self, image, K, D):
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-
-        # OpenCV 5.0.0+: 使用CharucoDetector
-        charuco_corners, charuco_ids, marker_corners, marker_ids = self.charuco_detector.detectBoard(gray, K, D)
-        
-        if charuco_corners is None or len(charuco_corners) < 4:
+        corners, ids, _ = self._detect_markers(gray)
+        if ids is None:
             return None
-
-        # 使用solvePnP估计位姿
-        obj_points = []
-        img_points = []
-        for i, corner_id in enumerate(charuco_ids):
-            # 获取ChArUco board上的3D点
-            point = self.charuco_board.getChessboardCorners()[corner_id]
-            obj_points.append(point)
-            img_points.append(charuco_corners[i])
-        
-        obj_points = np.array(obj_points, dtype=np.float32)
-        img_points = np.array(img_points, dtype=np.float32)
-        
-        ret, rvec, tvec = cv2.solvePnP(obj_points, img_points, K, D)
-        if not ret:
+        matches = np.flatnonzero(ids.reshape(-1).astype(int) == self.aruco_marker_id)
+        if len(matches) == 0:
             return None
+        half = self.aruco_marker_length / 2.0
+        obj = np.array([
+            [-half, -half, 0], [half, -half, 0],
+            [half, half, 0], [-half, half, 0]
+        ], dtype=np.float32)
+        img = corners[int(matches[0])].reshape(4, 2).astype(np.float32)
+        return self._solve_pnp(obj, img, K, D)
 
-        T_cam_board = np.eye(4)
-        T_cam_board[:3, :3] = cv2.Rodrigues(rvec)[0]
-        T_cam_board[:3, 3] = tvec.flatten()
-        return T_cam_board
+    def _detect_charuco(self, image, K, D):
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        if self.charuco_detector is not None:
+            corners, ids, _, _ = self.charuco_detector.detectBoard(gray, K, D)
+        else:
+            marker_corners, marker_ids, _ = self._detect_markers(gray)
+            if marker_ids is None:
+                return None
+            _, corners, ids = cv2.aruco.interpolateCornersCharuco(
+                marker_corners, marker_ids, gray, self.charuco_board,
+                cameraMatrix=K, distCoeffs=D
+            )
+        if corners is None or ids is None or len(corners) < 4:
+            return None
+        board_corners = (
+            self.charuco_board.getChessboardCorners()
+            if hasattr(self.charuco_board, "getChessboardCorners")
+            else self.charuco_board.chessboardCorners
+        )
+        obj = np.asarray(board_corners, dtype=np.float32)[ids.reshape(-1).astype(int)]
+        img = np.asarray(corners, dtype=np.float32).reshape(-1, 2)
+        return self._solve_pnp(obj, img, K, D)
 
-    def _detect_chessboard(self, image: np.ndarray, K: np.ndarray, D: np.ndarray) -> Optional[np.ndarray]:
+    def _detect_chessboard(self, image, K, D):
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         pattern = (self.chessboard_cols, self.chessboard_rows)
-        flags = (
-            cv2.CALIB_CB_ADAPTIVE_THRESH
-            + cv2.CALIB_CB_NORMALIZE_IMAGE
-            + cv2.CALIB_CB_FAST_CHECK
+        flags = cv2.CALIB_CB_ADAPTIVE_THRESH + cv2.CALIB_CB_NORMALIZE_IMAGE
+        found, corners = cv2.findChessboardCorners(gray, pattern, flags)
+        if not found:
+            return None
+        corners = cv2.cornerSubPix(
+            gray, corners, (5, 5), (-1, -1),
+            (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 1e-6)
         )
-        ret, corners = cv2.findChessboardCorners(gray, pattern, flags)
-        if not ret:
+        obj = np.zeros((self.chessboard_rows * self.chessboard_cols, 3), np.float32)
+        obj[:, :2] = np.mgrid[0:self.chessboard_cols, 0:self.chessboard_rows].T.reshape(-1, 2)
+        obj *= self.charuco_square_length
+        return self._solve_pnp(obj, corners.reshape(-1, 2), K, D)
+
+    @staticmethod
+    def _solve_pnp(obj, img, K, D):
+        ok, rvec, tvec = cv2.solvePnP(obj, img, K, D)
+        if not ok:
             return None
+        T = np.eye(4)
+        T[:3, :3] = cv2.Rodrigues(rvec)[0]
+        T[:3, 3] = tvec.reshape(3)
+        return T
 
-        criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 1e-6)
-        corners_refined = cv2.cornerSubPix(gray, corners, (5, 5), (-1, -1), criteria)
-
-        objp = np.zeros((self.chessboard_rows * self.chessboard_cols, 3), np.float32)
-        objp[:, :2] = np.mgrid[0:self.chessboard_cols, 0:self.chessboard_rows].T.reshape(-1, 2)
-        objp *= self.charuco_square_length
-
-        ret, rvec, tvec = cv2.solvePnP(objp, corners_refined, K, D)
-        if not ret:
-            return None
-
-        T_cam_board = np.eye(4)
-        T_cam_board[:3, :3] = cv2.Rodrigues(rvec)[0]
-        T_cam_board[:3, 3] = tvec.flatten()
-        return T_cam_board
-
-    def _detect_single_aruco(self, image: np.ndarray, K: np.ndarray, D: np.ndarray) -> Optional[np.ndarray]:
-        """检测单个 ArUco/AprilTag 标记"""
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-
-        # OpenCV 5.0.0+: 使用ArucoDetector
-        marker_corners, marker_ids, rejected = self.aruco_detector.detectMarkers(gray)
-        
-        if marker_ids is None or len(marker_ids) == 0:
-            return None
-
-        # 查找指定 ID 的标记（如果指定了）
-        if self.aruco_marker_id >= 0:
-            found_idx = None
-            for i, mid in enumerate(marker_ids):
-                if mid == self.aruco_marker_id:
-                    found_idx = i
-                    break
-            if found_idx is None:
-                return None
-            
-            # 只使用找到的标记
-            marker_corners = [marker_corners[found_idx]]
-            marker_ids = [marker_ids[found_idx]]
-
-        # 使用solvePnP估计单个标记的位姿
-        half_size = self.aruco_marker_length / 2.0
-        obj_points = np.array([
-            [-half_size, -half_size, 0],
-            [half_size, -half_size, 0],
-            [half_size, half_size, 0],
-            [-half_size, half_size, 0]
-        ], dtype=np.float32)
-        
-        img_points = marker_corners[0].reshape(4, 2).astype(np.float32)
-        
-        ret, rvec, tvec = cv2.solvePnP(obj_points, img_points, K, D)
-        if not ret:
-            return None
-
-        T_cam_board = np.eye(4)
-        T_cam_board[:3, :3] = cv2.Rodrigues(rvec)[0]
-        T_cam_board[:3, 3] = tvec.flatten()
-        return T_cam_board
-
-    def draw_detection(self, image: np.ndarray, camera_matrix: np.ndarray, dist_coeffs: np.ndarray) -> np.ndarray:
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        marker_corners, marker_ids, rejected = self.aruco_detector.detectMarkers(gray)
+    def draw_detection(self, image, K, D):
         result = image.copy()
-        if marker_ids is not None and len(marker_ids) > 0:
-            cv2.aruco.drawDetectedMarkers(result, marker_corners, marker_ids)
-            
-            if self.board_type == "charuco":
-                charuco_corners, charuco_ids, _, _ = self.charuco_detector.detectBoard(gray, camera_matrix, dist_coeffs)
-                if charuco_corners is not None and len(charuco_corners) > 0:
-                    cv2.aruco.drawDetectedCornersCharuco(result, charuco_corners, charuco_ids)
-                    
-                    # 估计位姿并绘制坐标轴
-                    obj_points = []
-                    img_points = []
-                    for i, corner_id in enumerate(charuco_ids):
-                        point = self.charuco_board.getChessboardCorners()[corner_id]
-                        obj_points.append(point)
-                        img_points.append(charuco_corners[i])
-                    
-                    obj_points = np.array(obj_points, dtype=np.float32)
-                    img_points = np.array(img_points, dtype=np.float32)
-                    
-                    ret, rvec, tvec = cv2.solvePnP(obj_points, img_points, camera_matrix, dist_coeffs)
-                    if ret:
-                        cv2.drawFrameAxes(result, camera_matrix, dist_coeffs, rvec, tvec, 0.03)
+        corners, ids, _ = self._detect_markers(
+            cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        )
+        if ids is not None:
+            cv2.aruco.drawDetectedMarkers(result, corners, ids)
+        T = self.detect(image, K, D)
+        if T is not None:
+            cv2.drawFrameAxes(
+                result, K, D, cv2.Rodrigues(T[:3, :3])[0], T[:3, 3], 0.05
+            )
         return result

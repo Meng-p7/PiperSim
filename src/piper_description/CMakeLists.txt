@@ -4,6 +4,8 @@ project(piper_description)
 find_package(ament_cmake REQUIRED)
 
 install(DIRECTORY config launch meshes urdf rviz
-        DESTINATION share/${PROJECT_NAME}/)
+        DESTINATION share/${PROJECT_NAME}/
+        PATTERN "__pycache__" EXCLUDE
+        PATTERN "*.pyc" EXCLUDE)
 
 ament_package()

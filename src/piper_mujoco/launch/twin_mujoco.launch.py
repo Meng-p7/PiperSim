@@ -13,18 +13,20 @@
 """
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, LogInfo
+from launch.actions import DeclareLaunchArgument, EmitEvent, LogInfo
+from launch.events import Shutdown
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 
 def generate_launch_description():
-    use_sim_time = LaunchConfiguration("use_sim_time", default="true")
+    # Direct mirroring does not publish /clock, so wall time is the safe default.
+    use_sim_time = LaunchConfiguration("use_sim_time", default="false")
 
     # 数字孪生同步脚本（直接控制MuJoCo，不依赖ros2_control_node）
     sync_node = Node(
         package="piper_mujoco",
-        executable="digital_twin_sync_realtime.py",
+        executable="run_digital_twin.sh",
         name="digital_twin_sync",
         output="screen",
         parameters=[
@@ -32,10 +34,22 @@ def generate_launch_description():
             {"sync_frequency": 50.0},
             {"lpf_alpha": 0.6},
         ],
+        on_exit=[
+            EmitEvent(
+                event=Shutdown(
+                    reason="Digital twin viewer/synchronizer exited",
+                )
+            )
+        ],
     )
 
     return LaunchDescription([
-        DeclareLaunchArgument("use_sim_time", default_value="true"),
+        DeclareLaunchArgument(
+            "use_sim_time",
+            default_value="false",
+            choices=["true", "false"],
+            description="Keep false unless an external /clock publisher is running",
+        ),
 
         LogInfo(msg="=== Digital Twin MuJoCo Mode ==="),
         LogInfo(msg="Architecture: Real robot -> /joint_states -> Direct MuJoCo control"),

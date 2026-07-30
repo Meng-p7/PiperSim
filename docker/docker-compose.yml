@@ -1,44 +1,39 @@
-# PiperSim Docker Compose配置
-# 用法: docker compose up -d
+name: pipersim
 
 services:
   pipersim:
     build:
-      context: ..
-      dockerfile: docker/Dockerfile
+      context: .
+      dockerfile: Dockerfile
+      args:
+        PIPERSIM_UID: ${PIPERSIM_UID:-1000}
+        PIPERSIM_GID: ${PIPERSIM_GID:-1000}
     image: pipersim:jazzy
-    container_name: pipersim
 
-    # 图形界面支持
     environment:
-      - DISPLAY=${DISPLAY}
-      - QT_X11_NO_MITSHM=1
-      - NVIDIA_VISIBLE_DEVICES=all
-      - NVIDIA_DRIVER_CAPABILITIES=all
+      ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
     volumes:
-      - /tmp/.X11-unix:/tmp/.X11-unix:rw
-      - ..:/workspace:rw
+      - type: bind
+        source: ..
+        target: /workspace
+      # Never mix host Humble artifacts with container Jazzy artifacts.
+      - type: volume
+        source: pipersim_build
+        target: /workspace/build
+      - type: volume
+        source: pipersim_install
+        target: /workspace/install
+      - type: volume
+        source: pipersim_log
+        target: /workspace/log
 
-    # NVIDIA GPU支持
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-    
-    # CAN设备支持（真机控制需要）
-    privileged: true
-    devices:
-      - /dev:/dev
-    
-    # 网络配置
-    network_mode: host
-    
-    # 工作目录
+    shm_size: 1gb
     working_dir: /workspace
-    
-    # 保持容器运行
+    init: true
     stdin_open: true
     tty: true
+
+volumes:
+  pipersim_build:
+  pipersim_install:
+  pipersim_log:

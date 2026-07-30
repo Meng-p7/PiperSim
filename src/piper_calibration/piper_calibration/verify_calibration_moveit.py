@@ -1,450 +1,555 @@
-"""
-标定精度验证：AprilTag 检测 + MoveIt 运动规划。
-通过 MoveIt 进行 IK 求解和轨迹规划，通过 ros2_control 执行。
+"""Verify the real eye-to-hand calibration result with AprilTag and MoveIt.
 
-用法：
-  终端 1: ros2 launch piper_control real_bringup.launch.py can:=can0
-  终端 2: python3 src/piper_calibration/piper_calibration/verify_calibration.py \\
-            --result-file real_eye_in_hand_result.yaml --tag-id 1 --tag-size 0.057
+The calibration result is T_base_camera. Therefore a detected tag pose T_camera_tag
+is projected into the robot base by:
+
+    T_base_tag = T_base_camera @ T_camera_tag
+
+Run this script only with the normal real-robot MoveIt/control launch. Do not use
+calibration_mode:=true while asking MoveIt to move the robot.
 """
+
 import argparse
 import os
+from pathlib import Path
 import sys
-import time
 import threading
+import time
 
 import cv2
-import cv2.aruco as aruco
 import numpy as np
-import pyrealsense2 as rs
-
 import rclpy
-from rclpy.node import Node
-from rclpy.action import ActionClient
-from sensor_msgs.msg import JointState
+import tf2_ros
+import yaml
+from cv_bridge import CvBridge
 from geometry_msgs.msg import PoseStamped
 from moveit_msgs.action import MoveGroup
 from moveit_msgs.msg import (
-    MotionPlanRequest,
     Constraints,
-    JointConstraint,
-    PositionConstraint,
+    MotionPlanRequest,
     OrientationConstraint,
-    WorkspaceParameters
+    PositionConstraint,
+    WorkspaceParameters,
 )
-from moveit_msgs.srv import GetPositionIK, GetPositionFK
-import tf2_ros
+from rclpy.action import ActionClient
+from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
+from sensor_msgs.msg import CameraInfo, Image
+from shape_msgs.msg import SolidPrimitive
 
-JOINT_NAMES = ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"]
+
 APRILTAG_DICT = cv2.aruco.DICT_APRILTAG_36h11
 
 
-def load_calibration(path):
-    import yaml
-    with open(path, "r") as f:
+def _resolve_result_path(path: str) -> Path:
+    candidate = Path(path).expanduser()
+    if candidate.is_file():
+        return candidate.resolve()
+    if not candidate.is_absolute():
+        workspace_file = Path(__file__).resolve().parents[3] / candidate
+        if workspace_file.is_file():
+            return workspace_file.resolve()
+    raise FileNotFoundError(
+        f"Calibration result not found: {path}. Run eye-to-hand calibration first "
+        "and use data/real_eye_to_hand_result.yaml. The _samples.yaml file only "
+        "contains raw observations."
+    )
+
+
+def load_calibration(path: str):
+    result_path = _resolve_result_path(path)
+    with result_path.open("r", encoding="utf-8") as f:
         data = yaml.safe_load(f)
-    T = np.eye(4)
-    T[:3, :3] = np.array(data["rotation_matrix"])
-    T[0, 3] = data["translation"]["x"]
-    T[1, 3] = data["translation"]["y"]
-    T[2, 3] = data["translation"]["z"]
-    print(f"Loaded calibration: method={data.get('method')}, error={data.get('error'):.6f}")
-    return T
+    if isinstance(data, list):
+        raise ValueError(
+            f"{result_path} is a legacy raw-samples YAML list. Its board_position "
+            "values are target positions in the camera frame; it does not contain "
+            "the base_link-to-camera transform required for verification."
+        )
+    if not isinstance(data, dict):
+        raise ValueError(f"{result_path} must contain a YAML mapping")
+    if "samples" in data and (
+        "translation" not in data or "rotation_matrix" not in data
+    ):
+        raise ValueError(
+            f"{result_path} is a raw-samples YAML. Use the final result_file "
+            "referenced by that file instead."
+        )
+    if "translation" not in data or "rotation_matrix" not in data:
+        raise ValueError(
+            f"{result_path} has no translation/rotation_matrix fields. "
+            "Pass the final real_eye_to_hand_result.yaml file."
+        )
+    if data.get("calibration_type") not in (None, "eye_to_hand"):
+        raise ValueError(
+            f"Unsupported calibration_type={data.get('calibration_type')!r}"
+        )
+
+    rotation = np.asarray(data["rotation_matrix"], dtype=float)
+    translation = data["translation"]
+    if rotation.shape != (3, 3):
+        raise ValueError("rotation_matrix must be a 3x3 matrix")
+    if not np.isfinite(rotation).all():
+        raise ValueError("rotation_matrix contains NaN or infinity")
+    if not isinstance(translation, dict):
+        raise ValueError("translation must be a mapping with x, y and z")
+    if not all(axis in translation for axis in ("x", "y", "z")):
+        raise ValueError("translation must contain x, y and z")
+    if translation.get("unit", "m") != "m":
+        raise ValueError("translation.unit must be 'm'")
+
+    position = np.asarray(
+        [float(translation[axis]) for axis in ("x", "y", "z")], dtype=float
+    )
+    if not np.isfinite(position).all():
+        raise ValueError("translation contains NaN or infinity")
+    orthogonality_error = np.linalg.norm(rotation.T @ rotation - np.eye(3), "fro")
+    determinant = float(np.linalg.det(rotation))
+    if orthogonality_error > 1e-3 or determinant <= 0.0:
+        raise ValueError(
+            "rotation_matrix is not a valid right-handed rotation "
+            f"(orthogonality error={orthogonality_error:.3g}, det={determinant:.6g})"
+        )
+
+    T_base_camera = np.eye(4)
+    T_base_camera[:3, :3] = rotation
+    T_base_camera[:3, 3] = position
+
+    if "matrix_4x4" in data:
+        stored_matrix = np.asarray(data["matrix_4x4"], dtype=float)
+        if stored_matrix.shape != (4, 4):
+            raise ValueError("matrix_4x4 must be a 4x4 matrix")
+        if not np.allclose(stored_matrix, T_base_camera, atol=1e-6):
+            raise ValueError(
+                "matrix_4x4 is inconsistent with translation/rotation_matrix"
+            )
+    return T_base_camera, data, result_path
 
 
-class MoveItClient(Node):
-    """MoveIt 运动规划客户端"""
-    
-    def __init__(self):
-        super().__init__("moveit_verify_calibration")
-        self._current_joints = None
-        
-        # 订阅关节状态
-        self.create_subscription(JointState, "/joint_states", self._joint_cb, 10)
-        
-        # MoveIt MoveGroup action client
+class VerificationNode(Node):
+    def __init__(self, camera_topic, camera_info_topic,
+                 base_frame, ee_link, move_group, camera_timeout,
+                 expected_camera_frame=None):
+        super().__init__("verify_eye_to_hand_calibration")
+        self.base_frame = base_frame
+        self.ee_link = ee_link
+        self.move_group = move_group
+        self.camera_timeout = camera_timeout
+        self.expected_camera_frame = expected_camera_frame
+        self._bridge = CvBridge()
+        self._image = None
+        self._K = None
+        self._D = None
+        self._camera_frame = None
+        self._camera_error = None
+        self._image_received_monotonic = None
+        self._lock = threading.Lock()
+
+        self.create_subscription(
+            Image, camera_topic, self._image_callback, qos_profile_sensor_data
+        )
+        self.create_subscription(
+            CameraInfo, camera_info_topic, self._camera_info_callback,
+            qos_profile_sensor_data
+        )
         self._move_group_client = ActionClient(self, MoveGroup, "/move_action")
-        
-        # IK 服务客户端
-        self._ik_client = self.create_client(GetPositionIK, "/compute_ik")
-        
-        # FK 服务客户端
-        self._fk_client = self.create_client(GetPositionFK, "/compute_fk")
-        
-        # TF
         self._tf_buffer = tf2_ros.Buffer()
         self._tf_listener = tf2_ros.TransformListener(self._tf_buffer, self)
-        
-        self.get_logger().info("MoveIt client initialized")
-    
-    def _joint_cb(self, msg):
-        d = {}
-        for name, pos in zip(msg.name, msg.position):
-            d[name] = pos
-        self._current_joints = d
-    
-    def get_current_q(self):
-        if self._current_joints is None:
-            return None
-        return [self._current_joints.get(n, 0.0) for n in JOINT_NAMES]
-    
-    def get_ee_pose(self):
-        """获取末端执行器位姿"""
+
+    def _image_callback(self, msg):
         try:
-            t = self._tf_buffer.lookup_transform(
-                "base_link", "tool_0",
-                rclpy.time.Time(),
+            image = self._bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
+        except Exception as exc:
+            self.get_logger().error(f"Image conversion failed: {exc}")
+            return
+        with self._lock:
+            self._image = image
+            self._image_received_monotonic = time.monotonic()
+
+    def _camera_info_callback(self, msg):
+        with self._lock:
+            if self._K is None:
+                message_frame = msg.header.frame_id.strip()
+                if not message_frame:
+                    self._camera_error = "CameraInfo.header.frame_id is empty"
+                    return
+                if (
+                    self.expected_camera_frame
+                    and message_frame != self.expected_camera_frame
+                ):
+                    self._camera_error = (
+                        f"Calibration result is for camera frame "
+                        f"{self.expected_camera_frame!r}, but CameraInfo uses "
+                        f"{message_frame!r}"
+                    )
+                    return
+                self._camera_frame = message_frame
+                self._K = np.asarray(msg.k, dtype=float).reshape(3, 3)
+                self._D = np.asarray(msg.d, dtype=float)
+
+    def wait_for_camera(self, timeout=30.0):
+        deadline = time.monotonic() + timeout
+        while rclpy.ok() and time.monotonic() < deadline:
+            with self._lock:
+                ready = (
+                    self._image is not None
+                    and self._K is not None
+                    and self._image_received_monotonic is not None
+                    and time.monotonic() - self._image_received_monotonic
+                    <= self.camera_timeout
+                )
+            if ready:
+                return True
+            time.sleep(0.1)
+        return False
+
+    def camera_snapshot(self):
+        with self._lock:
+            if self._image is None or self._K is None:
+                return None
+            return self._image.copy(), self._K.copy(), self._D.copy()
+
+    def camera_is_fresh(self):
+        with self._lock:
+            return (
+                self._image_received_monotonic is not None
+                and time.monotonic() - self._image_received_monotonic
+                <= self.camera_timeout
+            )
+
+    def camera_error(self):
+        with self._lock:
+            return self._camera_error
+
+    def get_ee_pose(self):
+        try:
+            transform = self._tf_buffer.lookup_transform(
+                self.base_frame, self.ee_link, rclpy.time.Time(),
                 timeout=rclpy.duration.Duration(seconds=1.0)
             )
-            pose = PoseStamped()
-            pose.header.frame_id = "base_link"
-            pose.header.stamp = self.get_clock().now().to_msg()
-            pose.pose.position.x = t.transform.translation.x
-            pose.pose.position.y = t.transform.translation.y
-            pose.pose.position.z = t.transform.translation.z
-            pose.pose.orientation = t.transform.rotation
-            return pose
-        except Exception as e:
-            self.get_logger().warn(f"Failed to get EE pose: {e}")
+        except Exception as exc:
+            self.get_logger().error(
+                f"TF {self.base_frame} -> {self.ee_link} unavailable: {exc}"
+            )
             return None
-    
-    def move_to_pose(self, target_pose, planning_time=5.0):
-        """
-        使用 MoveIt 移动到目标位姿
-        
-        Args:
-            target_pose: PoseStamped 目标位姿
-            planning_time: 规划时间限制（秒）
-        
-        Returns:
-            bool: 是否成功
-        """
-        if not self._move_group_client.wait_for_server(timeout_sec=5.0):
-            self.get_logger().error("MoveIt MoveGroup server not available")
+        pose = PoseStamped()
+        pose.header.frame_id = self.base_frame
+        pose.header.stamp = self.get_clock().now().to_msg()
+        pose.pose.position.x = transform.transform.translation.x
+        pose.pose.position.y = transform.transform.translation.y
+        pose.pose.position.z = transform.transform.translation.z
+        pose.pose.orientation = transform.transform.rotation
+        return pose
+
+    @staticmethod
+    def _wait_future(future, timeout):
+        # The node is already owned by the background executor. Calling
+        # spin_until_future_complete here would add it to a second executor.
+        done = threading.Event()
+        future.add_done_callback(lambda _: done.set())
+        if not done.wait(timeout):
+            return None
+        return future.result()
+
+    def move_to_pose(self, target_pose, execute=False, planning_time=8.0):
+        if not self._move_group_client.wait_for_server(timeout_sec=10.0):
+            self.get_logger().error(
+                "MoveIt /move_action is unavailable; start normal real mode "
+                "and do not use calibration_mode:=true for verification."
+            )
             return False
-        
-        # 创建 MoveGroup goal
-        goal = MoveGroup.Goal()
-        
-        # 设置规划请求
+
         request = MotionPlanRequest()
-        request.group_name = "manipulator"
+        request.group_name = self.move_group
         request.num_planning_attempts = 10
         request.allowed_planning_time = planning_time
-        request.max_velocity_scaling_factor = 0.5
-        request.max_acceleration_scaling_factor = 0.5
-        
-        # 设置目标约束
+        request.max_velocity_scaling_factor = 0.2
+        request.max_acceleration_scaling_factor = 0.2
+
         constraints = Constraints()
-        constraints.name = "move_to_target"
-        
-        # 位置约束
-        pos_constraint = PositionConstraint()
-        pos_constraint.header.frame_id = target_pose.header.frame_id
-        pos_constraint.link_name = "tool_0"
-        pos_constraint.target_point_offset.x = 0.0
-        pos_constraint.target_point_offset.y = 0.0
-        pos_constraint.target_point_offset.z = 0.0
-        
-        # 设置位置约束区域（球形）
-        from shape_msgs.msg import SolidPrimitive
+        position = PositionConstraint()
+        position.header.frame_id = target_pose.header.frame_id
+        position.link_name = self.ee_link
         sphere = SolidPrimitive()
         sphere.type = SolidPrimitive.SPHERE
-        sphere.dimensions = [0.01]  # 1cm 精度
-        
-        pos_constraint.constraint_region.primitives.append(sphere)
-        pos_constraint.constraint_region.primitive_poses.append(target_pose.pose)
-        pos_constraint.weight = 1.0
-        
-        constraints.position_constraints.append(pos_constraint)
-        
-        # 姿态约束
-        orient_constraint = OrientationConstraint()
-        orient_constraint.header.frame_id = target_pose.header.frame_id
-        orient_constraint.link_name = "tool_0"
-        orient_constraint.orientation = target_pose.pose.orientation
-        orient_constraint.absolute_x_axis_tolerance = 0.1  # ~6度
-        orient_constraint.absolute_y_axis_tolerance = 0.1
-        orient_constraint.absolute_z_axis_tolerance = 0.1
-        orient_constraint.weight = 1.0
-        
-        constraints.orientation_constraints.append(orient_constraint)
-        
+        sphere.dimensions = [0.01]
+        position.constraint_region.primitives.append(sphere)
+        position.constraint_region.primitive_poses.append(target_pose.pose)
+        position.weight = 1.0
+        constraints.position_constraints.append(position)
+
+        orientation = OrientationConstraint()
+        orientation.header.frame_id = target_pose.header.frame_id
+        orientation.link_name = self.ee_link
+        orientation.orientation = target_pose.pose.orientation
+        orientation.absolute_x_axis_tolerance = 0.15
+        orientation.absolute_y_axis_tolerance = 0.15
+        orientation.absolute_z_axis_tolerance = 0.15
+        orientation.weight = 1.0
+        constraints.orientation_constraints.append(orientation)
         request.goal_constraints.append(constraints)
-        
-        # 设置工作空间
+
         workspace = WorkspaceParameters()
-        workspace.header.frame_id = "base_link"
+        workspace.header.frame_id = self.base_frame
         workspace.min_corner.x = -1.0
         workspace.min_corner.y = -1.0
         workspace.min_corner.z = -0.1
         workspace.max_corner.x = 1.0
         workspace.max_corner.y = 1.0
-        workspace.max_corner.z = 1.0
+        workspace.max_corner.z = 1.2
         request.workspace_parameters = workspace
-        
-        goal.request = request
-        goal.planning_options.plan_only = False
-        goal.planning_options.replan = True
-        goal.planning_options.replan_attempts = 3
-        
-        # 发送目标
-        self.get_logger().info("Sending goal to MoveIt...")
-        future = self._move_group_client.send_goal_async(goal)
-        rclpy.spin_until_future_complete(self, future, timeout_sec=30.0)
-        
-        goal_handle = future.result()
-        if not goal_handle.accepted:
-            self.get_logger().error("Goal rejected by MoveIt")
-            return False
-        
-        self.get_logger().info("Goal accepted, waiting for result...")
-        result_future = goal_handle.get_result_async()
-        rclpy.spin_until_future_complete(self, result_future, timeout_sec=60.0)
-        
-        result = result_future.result()
-        if result.result.error_code.val == 1:  # SUCCESS
-            self.get_logger().info("MoveIt motion completed successfully")
-            return True
-        else:
-            self.get_logger().error(f"MoveIt motion failed with error code: {result.result.error_code.val}")
-            return False
-    
-    def move_to_joints(self, joint_positions, planning_time=5.0):
-        """
-        使用 MoveIt 移动到目标关节角度
-        
-        Args:
-            joint_positions: list[float] 目标关节角度
-            planning_time: 规划时间限制（秒）
-        
-        Returns:
-            bool: 是否成功
-        """
-        if not self._move_group_client.wait_for_server(timeout_sec=5.0):
-            self.get_logger().error("MoveIt MoveGroup server not available")
-            return False
-        
-        # 创建 MoveGroup goal
+
         goal = MoveGroup.Goal()
-        
-        # 设置规划请求
-        request = MotionPlanRequest()
-        request.group_name = "manipulator"
-        request.num_planning_attempts = 10
-        request.allowed_planning_time = planning_time
-        request.max_velocity_scaling_factor = 0.5
-        request.max_acceleration_scaling_factor = 0.5
-        
-        # 设置关节目标约束
-        constraints = Constraints()
-        constraints.name = "move_to_joints"
-        
-        for i, (name, pos) in enumerate(zip(JOINT_NAMES, joint_positions)):
-            joint_constraint = JointConstraint()
-            joint_constraint.joint_name = name
-            joint_constraint.position = pos
-            joint_constraint.tolerance_above = 0.01
-            joint_constraint.tolerance_below = 0.01
-            joint_constraint.weight = 1.0
-            constraints.joint_constraints.append(joint_constraint)
-        
-        request.goal_constraints.append(constraints)
-        
-        # 设置工作空间
-        workspace = WorkspaceParameters()
-        workspace.header.frame_id = "base_link"
-        workspace.min_corner.x = -1.0
-        workspace.min_corner.y = -1.0
-        workspace.min_corner.z = -0.1
-        workspace.max_corner.x = 1.0
-        workspace.max_corner.y = 1.0
-        workspace.max_corner.z = 1.0
-        request.workspace_parameters = workspace
-        
         goal.request = request
-        goal.planning_options.plan_only = False
+        goal.planning_options.plan_only = not execute
         goal.planning_options.replan = True
         goal.planning_options.replan_attempts = 3
-        
-        # 发送目标
-        self.get_logger().info("Sending joint goal to MoveIt...")
-        future = self._move_group_client.send_goal_async(goal)
-        rclpy.spin_until_future_complete(self, future, timeout_sec=30.0)
-        
-        goal_handle = future.result()
+
+        goal_handle = self._wait_future(
+            self._move_group_client.send_goal_async(goal), 30.0
+        )
+        if goal_handle is None:
+            self.get_logger().error("Timed out sending MoveIt goal")
+            return False
         if not goal_handle.accepted:
-            self.get_logger().error("Joint goal rejected by MoveIt")
+            self.get_logger().error("MoveIt rejected the goal")
             return False
-        
-        self.get_logger().info("Joint goal accepted, waiting for result...")
-        result_future = goal_handle.get_result_async()
-        rclpy.spin_until_future_complete(self, result_future, timeout_sec=60.0)
-        
-        result = result_future.result()
-        if result.result.error_code.val == 1:  # SUCCESS
-            self.get_logger().info("MoveIt joint motion completed successfully")
-            return True
+
+        wrapped_result = self._wait_future(goal_handle.get_result_async(), 90.0)
+        if wrapped_result is None:
+            self.get_logger().error(
+                "Timed out waiting for MoveIt result; requesting goal cancellation"
+            )
+            cancel_result = self._wait_future(
+                goal_handle.cancel_goal_async(), 5.0
+            )
+            if cancel_result is None:
+                self.get_logger().error(
+                    "MoveIt did not acknowledge cancellation; use the physical "
+                    "emergency stop if the robot is still moving"
+                )
+            return False
+        code = wrapped_result.result.error_code.val
+        if code != 1:
+            self.get_logger().error(f"MoveIt failed with error code {code}")
+            return False
+        if execute:
+            self.get_logger().info("MoveIt verification motion completed")
         else:
-            self.get_logger().error(f"MoveIt joint motion failed with error code: {result.result.error_code.val}")
-            return False
+            self.get_logger().info(
+                "MoveIt verification plan succeeded; no command was sent to "
+                "the robot. Re-run with --execute only after reviewing the plan."
+            )
+        return True
 
 
-def main():
+def _make_detector():
+    dictionary = cv2.aruco.getPredefinedDictionary(APRILTAG_DICT)
+    params = (
+        cv2.aruco.DetectorParameters()
+        if hasattr(cv2.aruco, "DetectorParameters")
+        else cv2.aruco.DetectorParameters_create()
+    )
+    if hasattr(cv2.aruco, "ArucoDetector"):
+        detector = cv2.aruco.ArucoDetector(dictionary, params)
+        return detector.detectMarkers
+    return lambda gray: cv2.aruco.detectMarkers(
+        gray, dictionary, parameters=params
+    )
+
+
+def _detect_tag(image, K, D, tag_id, tag_size, detect_markers):
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    corners, ids, _ = detect_markers(gray)
+    if ids is None:
+        return None, corners, ids
+    matches = np.flatnonzero(ids.reshape(-1).astype(int) == tag_id)
+    if not len(matches):
+        return None, corners, ids
+
+    half = tag_size / 2.0
+    obj = np.array([
+        [-half, -half, 0], [half, -half, 0],
+        [half, half, 0], [-half, half, 0]
+    ], dtype=np.float32)
+    img = corners[int(matches[0])].reshape(4, 2).astype(np.float32)
+    ok, rvec, tvec = cv2.solvePnP(obj, img, K, D)
+    if not ok:
+        return None, corners, ids
+    T_camera_tag = np.eye(4)
+    T_camera_tag[:3, :3] = cv2.Rodrigues(rvec)[0]
+    T_camera_tag[:3, 3] = tvec.reshape(3)
+    return T_camera_tag, corners, ids
+
+
+def main(args=None):
     parser = argparse.ArgumentParser()
-    parser.add_argument("--result-file", default="real_eye_to_hand_result_samples.yaml")
+    parser.add_argument("--result-file", default="data/real_eye_to_hand_result.yaml")
     parser.add_argument("--tag-id", type=int, default=0)
     parser.add_argument("--tag-size", type=float, default=0.057)
-    args = parser.parse_args()
-
-    T_cam_ee = load_calibration(args.result_file)
-
-    # Camera
-    pipeline = rs.pipeline()
-    config = rs.config()
-    config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
-    pipeline.start(config)
-    time.sleep(2)
-
-    profile = pipeline.get_active_profile()
-    intrinsics = profile.get_stream(rs.stream.color).as_video_stream_profile().get_intrinsics()
-    K = np.array([[intrinsics.fx, 0, intrinsics.ppx],
-                   [0, intrinsics.fy, intrinsics.ppy],
-                   [0, 0, 1]], dtype=np.float64)
-    D = np.array(intrinsics.coeffs, dtype=np.float64)
-
-    dictionary = cv2.aruco.getPredefinedDictionary(APRILTAG_DICT)
-    params = cv2.aruco.DetectorParameters_create()
-
-    # ROS2
-    rclpy.init()
-    node = MoveItClient()
-    spin_thread = threading.Thread(target=rclpy.spin, args=(node,), daemon=True)
-    spin_thread.start()
-    time.sleep(2)
-
-    q = node.get_current_q()
-    if q is not None:
-        print(f"Current joints: [{', '.join(f'{j:.3f}' for j in q)}]")
-
-    ee_pose = node.get_ee_pose()
-    if ee_pose is not None:
-        p = ee_pose.pose.position
-        print(f"Current EE: [{p.x:.4f}, {p.y:.4f}, {p.z:.4f}]")
-
-    print(f"\nAprilTag Verify (MoveIt) | ID={args.tag_id} Size={args.tag_size}m")
-    print("Space = move arm | Q = quit\n")
+    parser.add_argument("--standoff", type=float, default=0.10)
+    parser.add_argument("--camera-topic", default="/camera/color/image_raw")
+    parser.add_argument("--camera-info-topic", default="/camera/color/camera_info")
+    parser.add_argument("--camera-timeout", type=float, default=1.0)
+    parser.add_argument("--base-frame", default="base_link")
+    parser.add_argument("--ee-link", default="tool_0")
+    parser.add_argument("--move-group", default="manipulator")
+    parser.add_argument(
+        "--execute",
+        action="store_true",
+        help=(
+            "allow SPACE to execute the MoveIt trajectory on the real robot; "
+            "without this flag the tool only plans"
+        ),
+    )
+    parser.add_argument(
+        "--inspect-only",
+        action="store_true",
+        help="validate and print the result YAML without connecting to ROS or moving",
+    )
+    parsed = parser.parse_args(args)
+    if parsed.tag_size <= 0.0:
+        parser.error("--tag-size must be greater than zero")
+    if parsed.standoff <= 0.0:
+        parser.error("--standoff must be greater than zero")
+    if parsed.camera_timeout <= 0.0:
+        parser.error("--camera-timeout must be greater than zero")
 
     try:
-        while True:
-            frames = pipeline.wait_for_frames()
-            cf = frames.get_color_frame()
-            if not cf:
+        T_base_camera, info, result_path = load_calibration(parsed.result_file)
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        parser.error(str(exc))
+
+    p = T_base_camera[:3, 3]
+    residual = info.get("motion_residual", info.get("error"))
+    print(f"Loaded: {result_path}")
+    print(f"Camera origin in base frame: [{p[0]:.6f}, {p[1]:.6f}, {p[2]:.6f}] m")
+    transform_info = info.get("transform")
+    calibration_camera_frame = None
+    if isinstance(transform_info, dict):
+        parent = transform_info.get("parent_frame")
+        child = transform_info.get("child_frame")
+        calibration_camera_frame = child
+        print(f"Transform: {parent} -> {child}")
+        if parent and parent != parsed.base_frame:
+            parser.error(
+                f"result parent_frame={parent!r} does not match "
+                f"--base-frame={parsed.base_frame!r}"
+            )
+    if residual is not None:
+        print(f"Calibration residual: {float(residual):.8f}")
+    if parsed.inspect_only:
+        print("Result schema and transform are valid.")
+        return 0
+    if (
+        sys.platform.startswith("linux")
+        and not os.environ.get("DISPLAY")
+        and not os.environ.get("WAYLAND_DISPLAY")
+    ):
+        print(
+            "[FAIL] 交互验证需要图形会话（DISPLAY 或 WAYLAND_DISPLAY）",
+            file=sys.stderr,
+        )
+        print(
+            "       修复: Docker 使用 ./docker/run.sh up --gui；"
+            "无界面主机仅使用 --inspect-only",
+            file=sys.stderr,
+        )
+        return 1
+
+    rclpy.init(args=None)
+    node = VerificationNode(
+        parsed.camera_topic, parsed.camera_info_topic,
+        parsed.base_frame, parsed.ee_link, parsed.move_group,
+        parsed.camera_timeout,
+        calibration_camera_frame,
+    )
+    spin_thread = threading.Thread(target=rclpy.spin, args=(node,), daemon=True)
+    spin_thread.start()
+    detect_markers = _make_detector()
+    action = "move" if parsed.execute else "plan"
+    window = f"Eye-to-Hand Verify [Space={action}, Q=quit]"
+
+    status = 0
+    try:
+        if not node.wait_for_camera():
+            raise RuntimeError(
+                node.camera_error() or "Timed out waiting for ROS camera topics"
+            )
+        if parsed.execute:
+            print(
+                "EXECUTION ENABLED: SPACE plans and moves the real robot; "
+                "keep the physical emergency stop ready."
+            )
+        else:
+            print(
+                "PLAN-ONLY: SPACE checks a trajectory without moving the robot. "
+                "Use --execute only after reviewing the plan."
+            )
+        print("Q/Esc: quit")
+        cv2.namedWindow(window, cv2.WINDOW_AUTOSIZE)
+        while rclpy.ok():
+            if not node.camera_is_fresh():
+                raise RuntimeError(
+                    "Camera stream became stale; verification stopped before "
+                    "planning or execution."
+                )
+            snapshot = node.camera_snapshot()
+            if snapshot is None:
+                time.sleep(0.02)
                 continue
-            image = np.asanyarray(cf.get_data())
-            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-            corners, ids, _ = cv2.aruco.detectMarkers(gray, dictionary, parameters=params)
+            image, K, D = snapshot
+            T_camera_tag, corners, ids = _detect_tag(
+                image, K, D, parsed.tag_id, parsed.tag_size, detect_markers
+            )
+            display = image.copy()
+            if ids is not None:
+                cv2.aruco.drawDetectedMarkers(display, corners, ids)
 
-            vis = image.copy()
-            T_cam_tag = None
+            T_base_tag = None
+            if T_camera_tag is not None:
+                T_base_tag = T_base_camera @ T_camera_tag
+                p = T_base_tag[:3, 3]
+                text = f"base tag: {p[0]:+.3f} {p[1]:+.3f} {p[2]:+.3f} m"
+                cv2.putText(display, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX,
+                            0.6, (0, 255, 0), 2)
+            else:
+                cv2.putText(display, f"Looking for tag ID={parsed.tag_id}",
+                            (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6,
+                            (0, 0, 255), 2)
 
-            if ids is not None and len(ids) > 0:
-                cv2.aruco.drawDetectedMarkers(vis, corners, ids)
-                for i, tid in enumerate(ids.flatten().tolist()):
-                    half = args.tag_size / 2.0
-                    obj = np.array([[-half,-half,0],[half,-half,0],[half,half,0],[-half,half,0]], dtype=np.float32)
-                    ok, rvec, tvec = cv2.solvePnP(obj, corners[i].reshape(4,2).astype(np.float32), K, D)
-                    if ok:
-                        cv2.drawFrameAxes(vis, K, D, rvec, tvec, 0.05)
-                        cv2.putText(vis, f"ID={tid} {np.linalg.norm(tvec):.3f}m", (10, 30),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-                        if tid == args.tag_id:
-                            R_m, _ = cv2.Rodrigues(rvec)
-                            T_cam_tag = np.eye(4)
-                            T_cam_tag[:3, :3] = R_m
-                            T_cam_tag[:3, 3] = tvec.flatten()
-                            cv2.putText(vis, "[SPACE] Move", (10, 60),
-                                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-
-            if T_cam_tag is None:
-                cv2.putText(vis, f"Looking for ID={args.tag_id}...", (10, 30),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
-
-            cv2.imshow("Calibration Verify (MoveIt)", vis)
+            cv2.imshow(window, display)
             key = cv2.waitKey(1) & 0xFF
-            if key in (ord('q'), 27):
+            if key in (ord("q"), ord("Q"), 27):
                 break
-            elif key == ord(' ') and T_cam_tag is not None:
-                print("\nMoving with MoveIt...")
-                
-                # 计算目标位姿
-                ee_pose = node.get_ee_pose()
-                if ee_pose is None:
-                    print("ERROR: No EE pose available")
+            if key == ord(" ") and T_base_tag is not None:
+                current = node.get_ee_pose()
+                if current is None:
                     continue
-                
-                # 获取当前末端位姿的变换矩阵
-                T_ee = np.eye(4)
-                T_ee[:3, 3] = [ee_pose.pose.position.x, 
-                               ee_pose.pose.position.y, 
-                               ee_pose.pose.position.z]
-                q_ee = ee_pose.pose.orientation
-                # 四元数转旋转矩阵
-                x, y, z, w = q_ee.x, q_ee.y, q_ee.z, q_ee.w
-                T_ee[:3, :3] = np.array([
-                    [1-2*y*y-2*z*z, 2*x*y-2*w*z, 2*x*z+2*w*y],
-                    [2*x*y+2*w*z, 1-2*x*x-2*z*z, 2*y*z-2*w*x],
-                    [2*x*z-2*w*y, 2*y*z+2*w*x, 1-2*x*x-2*y*y]])
-                
-                T_ee_cam = np.linalg.inv(T_cam_ee)
-                
-                # 计算目标位姿（在标定板上方 10cm）
-                T_base_tag = T_ee @ T_ee_cam @ T_cam_tag
-                target_pos = T_base_tag[:3, 3].copy()
-                target_pos[2] += 0.10  # 上方 10cm
-                
-                if target_pos[2] < 0.08:
-                    target_pos[2] = 0.08  # 最小高度 8cm
-                
-                print(f"Tag position: [{T_base_tag[0,3]:.4f}, {T_base_tag[1,3]:.4f}, {T_base_tag[2,3]:.4f}]")
-                print(f"Target (above): [{target_pos[0]:.4f}, {target_pos[1]:.4f}, {target_pos[2]:.4f}]")
-                
-                # 创建目标位姿
-                target_pose = PoseStamped()
-                target_pose.header.frame_id = "base_link"
-                target_pose.header.stamp = node.get_clock().now().to_msg()
-                target_pose.pose.position.x = target_pos[0]
-                target_pose.pose.position.y = target_pos[1]
-                target_pose.pose.position.z = target_pos[2]
-                
-                # 保持当前姿态（末端朝下）
-                target_pose.pose.orientation = ee_pose.pose.orientation
-                
-                # 使用 MoveIt 移动
-                success = node.move_to_pose(target_pose)
-                
-                if success:
-                    time.sleep(1)
-                    # 报告误差
-                    actual_pose = node.get_ee_pose()
-                    if actual_pose is not None:
-                        actual = np.array([actual_pose.pose.position.x,
-                                          actual_pose.pose.position.y,
-                                          actual_pose.pose.position.z])
-                        err = np.linalg.norm(actual - target_pos)
-                        print(f"Actual EE: [{actual[0]:.4f}, {actual[1]:.4f}, {actual[2]:.4f}]")
-                        print(f"Error: {err*1000:.1f} mm")
-                else:
-                    print("MoveIt motion failed!")
-                
-                print("Done.\n")
+                target = PoseStamped()
+                target.header.frame_id = parsed.base_frame
+                target.header.stamp = node.get_clock().now().to_msg()
+                target.pose.position.x = float(T_base_tag[0, 3])
+                target.pose.position.y = float(T_base_tag[1, 3])
+                target.pose.position.z = max(
+                    0.08, float(T_base_tag[2, 3] + parsed.standoff)
+                )
+                target.pose.orientation = current.pose.orientation
+                if not node.move_to_pose(target, execute=parsed.execute):
+                    status = 1
+                    break
             time.sleep(0.01)
+    except (RuntimeError, cv2.error) as exc:
+        node.get_logger().error(str(exc))
+        status = 1
     finally:
-        pipeline.stop()
         cv2.destroyAllWindows()
+        if rclpy.ok():
+            rclpy.shutdown()
+        spin_thread.join(timeout=2.0)
         node.destroy_node()
-        rclpy.shutdown()
+    return status
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

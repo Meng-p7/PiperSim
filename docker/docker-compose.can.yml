@@ -1,0 +1,5 @@
+services:
+  pipersim:
+    # SocketCAN interfaces live in a network namespace. The interface must be
+    # configured on the host; the container receives no NET_ADMIN capability.
+    network_mode: host

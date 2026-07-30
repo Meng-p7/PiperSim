@@ -1,0 +1,11 @@
+services:
+  pipersim:
+    environment:
+      NVIDIA_DRIVER_CAPABILITIES: graphics,utility,display
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

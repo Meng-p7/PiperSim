@@ -7,6 +7,13 @@
     <xacro:arg name="joint_state_topic_hardware" default="false" />
     <xacro:arg name="mock_hardware" default="false" />
     <xacro:arg name="real_hardware" default="false" />
+    <xacro:arg name="calibration_mode" default="false" />
+    <xacro:arg name="can_interface" default="can0" />
+    <xacro:arg name="speed_percent" default="20" />
+    <xacro:arg name="feedback_timeout_ms" default="250" />
+    <xacro:arg name="max_arm_step" default="0.02" />
+    <xacro:arg name="max_gripper_step" default="0.002" />
+    <xacro:arg name="mujoco_headless" default="false" />
 
     <!-- Import macros for main hardware components -->
     <xacro:include filename="$(find piper_description)/urdf/piper_macro.xacro" />
@@ -47,6 +54,13 @@
         mock_hardware="$(arg mock_hardware)"
         sim_mujoco="$(arg sim_mujoco)"
         real_hardware="$(arg real_hardware)"
+        calibration_mode="$(arg calibration_mode)"
+        can_interface="$(arg can_interface)"
+        speed_percent="$(arg speed_percent)"
+        feedback_timeout_ms="$(arg feedback_timeout_ms)"
+        max_arm_step="$(arg max_arm_step)"
+        max_gripper_step="$(arg max_gripper_step)"
+        mujoco_headless="$(arg mujoco_headless)"
         initial_positions="${xacro.load_yaml(initial_positions_file)}">
       <origin xyz="0 0 0" rpy="0 0 0" />  <!-- position robot in the world -->
     </xacro:load_piper>

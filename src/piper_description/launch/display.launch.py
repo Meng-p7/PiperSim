@@ -1,17 +1,21 @@
-import os
 from launch import LaunchDescription
+from launch.substitutions import Command, PathJoinSubstitution
 from launch_ros.actions import Node
-from ament_index_python.packages import get_package_share_directory
+from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
-    pkg_dir = get_package_share_directory("piper_description")
-
-    urdf_path = os.path.join(pkg_dir, "urdf", "piper.urdf")
-    rviz_path = os.path.join(pkg_dir, "rviz", "piper.rviz")
-
-    with open(urdf_path, "r") as f:
-        robot_desc = f.read()
+    package_share = FindPackageShare("piper_description")
+    robot_desc = Command([
+        "xacro ",
+        PathJoinSubstitution([
+            package_share, "urdf", "piper.urdf.xacro",
+        ]),
+        " mock_hardware:=true",
+    ])
+    rviz_path = PathJoinSubstitution([
+        package_share, "rviz", "piper.rviz",
+    ])
 
     return LaunchDescription([
         # 机器人状态发布器（从 URDF 发布 TF）

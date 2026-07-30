@@ -6,14 +6,20 @@
 不依赖ROS2，不会被控制器覆盖。
 
 启动命令：
-  python3 ~/PiperSim/src/piper_mujoco/scripts/standalone_mujoco.py
+  python3 src/piper_mujoco/scripts/standalone_mujoco.py
 """
 
-import mujoco
-import mujoco.viewer
-import numpy as np
 import os
 import sys
+import time
+
+try:
+    import mujoco
+    import mujoco.viewer
+except ModuleNotFoundError:
+    print("[FAIL] Python MuJoCo 模块未安装", file=sys.stderr)
+    print("       修复: 先按 README 创建 .venv-mujoco，或使用 Docker", file=sys.stderr)
+    sys.exit(1)
 
 
 def find_model_path():
@@ -22,11 +28,17 @@ def find_model_path():
     candidates = [
         # 源码目录
         os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'models', 'piper.xml'),
-        # install目录
-        os.path.expanduser('~/PiperSim/install/piper_mujoco/share/piper_mujoco/models/piper.xml'),
-        # 相对于脚本
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), '../models/piper.xml'),
     ]
+
+    try:
+        from ament_index_python.packages import get_package_share_directory
+        candidates.append(os.path.join(
+            get_package_share_directory('piper_mujoco'),
+            'models',
+            'piper.xml',
+        ))
+    except Exception:
+        pass
     
     for path in candidates:
         abs_path = os.path.normpath(path)
@@ -70,11 +82,15 @@ def main():
         viewer.cam.elevation = -20
 
         while viewer.is_running():
+            step_started = time.monotonic()
             # 步进仿真（GUI的control滑块值会自动应用到data.ctrl）
             mujoco.mj_step(model, data)
-            
+
             # 同步viewer
             viewer.sync()
+            remaining = model.opt.timestep - (time.monotonic() - step_started)
+            if remaining > 0.0:
+                time.sleep(remaining)
 
     print("\nMuJoCo viewer closed.")
 

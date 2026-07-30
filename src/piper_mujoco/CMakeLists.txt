@@ -7,26 +7,32 @@ endif()
 
 # Find packages
 find_package(ament_cmake REQUIRED)
-find_package(ament_cmake_python REQUIRED)
 
 # Install launch files
 install(DIRECTORY launch
   DESTINATION share/${PROJECT_NAME}
+  PATTERN "__pycache__" EXCLUDE
+  PATTERN "*.pyc" EXCLUDE
 )
 
 # Install config files
 install(DIRECTORY config
   DESTINATION share/${PROJECT_NAME}
+  PATTERN "__pycache__" EXCLUDE
+  PATTERN "*.pyc" EXCLUDE
 )
 
 # Install models (symlink to official MuJoCo model)
 install(DIRECTORY models
   DESTINATION share/${PROJECT_NAME}
+  PATTERN "__pycache__" EXCLUDE
+  PATTERN "*.pyc" EXCLUDE
 )
 
 # Install Python scripts
 install(PROGRAMS
   scripts/digital_twin_sync_realtime.py
+  scripts/run_digital_twin.sh
   DESTINATION lib/${PROJECT_NAME}
 )
 

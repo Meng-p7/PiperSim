@@ -1,42 +1,37 @@
 /piper_calibration:
   ros__parameters:
-    # --- Calibration mode ---
-    eye_mode: "eye_to_hand"       # eye-to-hand 模式（相机固定在外部）
-    method: "park"                # tsai / park / horaund / andreff / daniilidis
-    num_poses: 20                 # number of calibration poses to collect
+    method: "park"
+    num_poses: 20
 
-    # --- Robot ---
-    move_group_name: "piper_arm"
-    end_effector_link: "link6"
+    # The URDF frame is tool_0; link6/link6 do not exist.
     base_frame: "base_link"
+    end_effector_link: "tool_0"
 
-    # --- Camera (Orbbec Femto Bolt) ---
-    # 需要先启动相机节点：ros2 launch orbbec_camera femto_bolt.launch.py
+    # Fixed external camera. Start the corresponding camera ROS2 driver first.
     camera_topic: "/camera/color/image_raw"
     camera_info_topic: "/camera/color/camera_info"
-    camera_frame: "camera_link"   # eye-to-hand模式下相机固定在外部
+    # Empty means: use CameraInfo.header.frame_id (normally camera_color_optical_frame).
+    # Set a non-empty value only to enforce an expected optical frame name.
+    camera_frame: ""
 
-    # --- Calibration board (AprilTag) ---
-    board_type: "aruco"           # charuco / chessboard / aruco
-    aruco_dict: "DICT_APRILTAG_36H11"  # AprilTag 36h11 字典
-    aruco_marker_length: 0.057    # 单个AprilTag标记尺寸（米），请根据实际尺寸修改
-    aruco_marker_id: 0            # AprilTag标记ID（检测到的是ID=0）
-    # ChArUco params (fallback)
+    # AprilTag rigidly attached to the robot end effector.
+    board_type: "aruco"
+    aruco_dict: "DICT_APRILTAG_36H11"
+    aruco_marker_length: 0.057
+    aruco_marker_id: 0
+
+    # Optional detector parameters for other supported board types.
     charuco_rows: 9
     charuco_cols: 14
-    charuco_square_length: 0.02   # meters
-    charuco_marker_length: 0.015  # meters
-    # Chessboard params (fallback)
+    charuco_square_length: 0.02
+    charuco_marker_length: 0.015
     chessboard_rows: 10
     chessboard_cols: 12
 
-    # --- Output ---
-    output_frame: "camera_optical_frame"
     result_file: "data/real_eye_to_hand_result.yaml"
     image_save_dir: "data/calibration_images_eye_to_hand"
 
-    # --- Pose generation ---
-    seed_joints: [0.0, 1.57, -1.3485, 0.0, 0.0, 0.0]
-    noise_per_joint: [0.05, 0.08, 0.08, 0.10, 0.05, 0.10]
-
-    real_robot: true
+    # Abort instead of sampling frozen robot/camera data.
+    joint_state_timeout_sec: 1.0
+    image_timeout_sec: 1.0
+    safety_recheck_period_sec: 1.0

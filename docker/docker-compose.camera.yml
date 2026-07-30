@@ -1,0 +1,9 @@
+services:
+  pipersim:
+    # Orbbec access is opt-in and limited to the USB device bus.
+    volumes:
+      - type: bind
+        source: /dev/bus/usb
+        target: /dev/bus/usb
+    device_cgroup_rules:
+      - "c 189:* rmw"

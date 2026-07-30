@@ -10,23 +10,38 @@
   - 显示独立的MuJoCo GUI窗口
 """
 
-import rclpy
-from rclpy.node import Node
-from sensor_msgs.msg import JointState
-import mujoco
-import mujoco.viewer
-import numpy as np
+import os
+import sys
 import threading
 import time
-import os
+from pathlib import Path
+
+try:
+    import mujoco
+    import mujoco.viewer
+except ModuleNotFoundError:
+    print('[FAIL] Python MuJoCo 模块未安装', file=sys.stderr)
+    print('       修复: 先按 README 创建 .venv-mujoco，或使用 Docker', file=sys.stderr)
+    sys.exit(1)
+
+import rclpy
+from rclpy.executors import ExternalShutdownException
+from rclpy.node import Node
+from sensor_msgs.msg import JointState
 
 
 class DigitalTwinSyncMujoco(Node):
     """数字孪生同步节点 - 直接MuJoCo控制"""
 
-    JOINT_NAMES = ['joint1', 'joint2', 'joint3', 'joint4', 'joint5', 'joint6']
+    JOINT_NAMES = [
+        'joint1', 'joint2', 'joint3', 'joint4', 'joint5', 'joint6',
+        'gripper_joint',
+    ]
     # MuJoCo模型中对应的actuator名称
-    ACTUATOR_NAMES = ['joint1', 'joint2', 'joint3', 'joint4', 'joint5', 'joint6']
+    ACTUATOR_NAMES = [
+        'joint1', 'joint2', 'joint3', 'joint4', 'joint5', 'joint6',
+        'gripper',
+    ]
 
     def __init__(self, model_path):
         super().__init__('digital_twin_sync')
@@ -39,18 +54,22 @@ class DigitalTwinSyncMujoco(Node):
         # 找到actuator索引
         self.actuator_indices = {}
         for name in self.ACTUATOR_NAMES:
-            try:
-                idx = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_ACTUATOR, name)
-                self.actuator_indices[name] = idx
-                self.get_logger().info(f'  Actuator: {name} -> index {idx}')
-            except Exception:
-                self.get_logger().warn(f'  Actuator {name} not found in model')
+            idx = mujoco.mj_name2id(
+                self.model, mujoco.mjtObj.mjOBJ_ACTUATOR, name)
+            if idx < 0:
+                raise ValueError(f'MuJoCo actuator not found: {name}')
+            self.actuator_indices[name] = idx
+            self.get_logger().info(f'  Actuator: {name} -> index {idx}')
 
         # 参数
         self.declare_parameter('sync_frequency', 50.0)
         self.declare_parameter('lpf_alpha', 0.6)
-        self.sync_freq = self.get_parameter('sync_frequency').value
-        lpf_alpha = self.get_parameter('lpf_alpha').value
+        self.sync_freq = float(self.get_parameter('sync_frequency').value)
+        lpf_alpha = float(self.get_parameter('lpf_alpha').value)
+        if self.sync_freq <= 0.0:
+            raise ValueError('sync_frequency must be greater than zero')
+        if not 0.0 <= lpf_alpha <= 1.0:
+            raise ValueError('lpf_alpha must be in [0, 1]')
 
         # 低通滤波
         self.lpf_alpha = lpf_alpha
@@ -58,7 +77,6 @@ class DigitalTwinSyncMujoco(Node):
 
         # 状态
         self.target_positions = None
-        self.current_positions = None
         self.state_lock = threading.Lock()
         self.first_state_received = False
         self.sync_count = 0
@@ -69,6 +87,8 @@ class DigitalTwinSyncMujoco(Node):
 
         # MuJoCo仿真线程
         self.viewer_running = True
+        self.viewer_handle = None
+        self.viewer_error = None
         self.viewer_thread = threading.Thread(target=self._run_mujoco, daemon=True)
         self.viewer_thread.start()
 
@@ -121,66 +141,104 @@ class DigitalTwinSyncMujoco(Node):
 
     def _run_mujoco(self):
         """MuJoCo仿真+GUI线程"""
-        # 先前进仿真一步初始化
-        mujoco.mj_step(self.model, self.data)
+        try:
+            # 先前进仿真一步初始化
+            mujoco.mj_step(self.model, self.data)
 
-        with mujoco.viewer.launch_passive(self.model, self.data) as viewer:
-            self.get_logger().info('MuJoCo viewer opened')
+            with mujoco.viewer.launch_passive(self.model, self.data) as viewer:
+                self.viewer_handle = viewer
+                self.get_logger().info('MuJoCo viewer opened')
 
-            while viewer.is_running() and self.viewer_running:
-                # 应用目标位置
-                self._apply_positions()
+                while viewer.is_running() and self.viewer_running:
+                    self._apply_positions()
+                    mujoco.mj_step(self.model, self.data)
+                    viewer.sync()
+                    time.sleep(1.0 / self.sync_freq)
 
-                # 步进仿真
-                mujoco.mj_step(self.model, self.data)
-
-                # 同步viewer
-                viewer.sync()
-
-                # 控制仿真速率
-                time.sleep(1.0 / self.sync_freq)
-
-        self.get_logger().info('MuJoCo viewer closed')
+        except Exception as exc:
+            self.viewer_error = exc
+            self.get_logger().error(f'MuJoCo viewer failed: {exc}')
+        finally:
+            self.viewer_running = False
+            self.viewer_handle = None
+            if rclpy.ok():
+                self.get_logger().info(
+                    'MuJoCo viewer closed; stopping Twin mode')
+                rclpy.shutdown()
 
     def stop(self):
         self.viewer_running = False
+        viewer = self.viewer_handle
+        if viewer is not None:
+            try:
+                # MuJoCo documents close() as safe without the viewer lock.
+                viewer.close()
+            except Exception as exc:
+                self.get_logger().warning(
+                    f'Failed to close MuJoCo viewer cleanly: {exc}')
+        if self.viewer_thread.is_alive():
+            self.viewer_thread.join(timeout=2.0)
 
 
 def main(args=None):
     rclpy.init(args=args)
 
+    no_graphical_session = (
+        not os.environ.get('DISPLAY') and not os.environ.get('WAYLAND_DISPLAY')
+    )
+    if sys.platform.startswith('linux') and no_graphical_session:
+        print(
+            'ERROR: Twin mode requires a graphical session '
+            '(DISPLAY or WAYLAND_DISPLAY).',
+            file=sys.stderr,
+        )
+        print(
+            'Use Real mode on a headless host, or enable docker/run.sh --gui.',
+            file=sys.stderr,
+        )
+        rclpy.shutdown()
+        return 1
+
     # 查找MuJoCo模型路径
-    model_path = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-        'src', 'piper_mujoco', 'models', 'piper.xml')
+    model_path = Path(__file__).resolve().parents[1] / 'models' / 'piper.xml'
 
     # 也尝试从install目录查找
-    if not os.path.exists(model_path):
+    if not model_path.exists():
         # 尝试通过ament_index_python查找
         try:
             from ament_index_python.packages import get_package_share_directory
             pkg_dir = get_package_share_directory('piper_mujoco')
-            model_path = os.path.join(pkg_dir, 'models', 'piper.xml')
+            model_path = Path(pkg_dir) / 'models' / 'piper.xml'
         except Exception:
             pass
 
-    if not os.path.exists(model_path):
+    if not model_path.exists():
         print(f'ERROR: MuJoCo model not found at {model_path}')
         print('Please ensure piper_mujoco package is built and installed')
         rclpy.shutdown()
-        return
-
-    node = DigitalTwinSyncMujoco(model_path)
+        return 1
 
     try:
+        node = DigitalTwinSyncMujoco(str(model_path))
+    except Exception as exc:
+        print(f'ERROR: Failed to initialize digital twin: {exc}', file=sys.stderr)
+        rclpy.shutdown()
+        return 1
+
+    status = 0
+    try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
         node.stop()
+        if node.viewer_error is not None:
+            status = 1
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
+    return status
 
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main())

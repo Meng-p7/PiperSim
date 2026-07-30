@@ -12,6 +12,13 @@
     joint_state_topic_hardware:=false
     mock_hardware:=true
     real_hardware:=false
+    calibration_mode:=false
+    can_interface:=can0
+    speed_percent:=20
+    feedback_timeout_ms:=250
+    max_arm_step:=0.02
+    max_gripper_step:=0.002
+    mujoco_headless:=false
     initial_positions:=${dict(joint1=0.0,joint2=0.0,joint3=0.0,joint4=0.0,joint5=0.0,joint6=0.0)}">
 
     <xacro:include filename="$(find piper_description)/urdf/piper_arm_macro.xacro" />
@@ -39,6 +46,13 @@
       joint_state_topic_hardware="${joint_state_topic_hardware}"
       mock_hardware="${mock_hardware}"
       real_hardware="${real_hardware}"
+      calibration_mode="${calibration_mode}"
+      can_interface="${can_interface}"
+      speed_percent="${speed_percent}"
+      feedback_timeout_ms="${feedback_timeout_ms}"
+      max_arm_step="${max_arm_step}"
+      max_gripper_step="${max_gripper_step}"
+      mujoco_headless="${mujoco_headless}"
       sim_mujoco="${sim_mujoco}"
       joint_commands_topic="${joint_commands_topic}"
       joint_states_topic="${joint_states_topic}"

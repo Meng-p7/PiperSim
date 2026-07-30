@@ -1,23 +1,30 @@
 <?xml version="1.0"?>
 <package format="3">
   <name>piper_calibration</name>
-  <version>0.1.0</version>
-  <description>Hand-eye calibration for Piper robot using ROS2 + MoveIt</description>
-  <maintainer email="user@example.com">user</maintainer>
+  <version>0.2.0</version>
+  <description>Real-robot eye-to-hand calibration and MoveIt verification for Piper</description>
+  <maintainer email="dream@example.com">Dream</maintainer>
   <license>MIT</license>
 
   <buildtool_depend>ament_python</buildtool_depend>
-
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
   <depend>rclpy</depend>
+  <depend>controller_manager_msgs</depend>
+  <depend>lifecycle_msgs</depend>
   <depend>tf2_ros</depend>
-  <depend>tf2_geometry_msgs</depend>
   <depend>cv_bridge</depend>
   <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
   <depend>geometry_msgs</depend>
-  <depend>visualization_msgs</depend>
-  <depend>pymoveit2</depend>
-
+  <depend>message_filters</depend>
+  <depend>moveit_msgs</depend>
+  <depend>shape_msgs</depend>
   <exec_depend>piper_description</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-opencv</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
 
   <export>
     <build_type>ament_python</build_type>

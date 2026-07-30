@@ -35,9 +35,12 @@ def generate_launch_description():
         package="controller_manager",
         executable="ros2_control_node",
         output="screen",
-        parameters=[
-            {"robot_description": robot_description},
-            controllers_yaml,
+        parameters=[controllers_yaml],
+        # Humble subscribes on ~/robot_description; Jazzy uses
+        # robot_description. Both are fed by robot_state_publisher.
+        remappings=[
+            ("~/robot_description", "/robot_description"),
+            ("robot_description", "/robot_description"),
         ],
     )
 
@@ -49,6 +52,7 @@ def generate_launch_description():
             "joint_state_broadcaster",
             "--controller-manager-timeout", "30",
             "-c", "/controller_manager",
+            "--param-file", controllers_yaml,
         ],
         output="screen",
     )
@@ -60,6 +64,7 @@ def generate_launch_description():
             "joint_trajectory_controller",
             "--controller-manager-timeout", "30",
             "-c", "/controller_manager",
+            "--param-file", controllers_yaml,
         ],
         output="screen",
     )
@@ -71,6 +76,7 @@ def generate_launch_description():
             "gripper_controller",
             "--controller-manager-timeout", "30",
             "-c", "/controller_manager",
+            "--param-file", controllers_yaml,
         ],
         output="screen",
     )

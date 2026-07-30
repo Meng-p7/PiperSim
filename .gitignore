@@ -10,6 +10,10 @@ __pycache__/
 *.egg-info/
 dist/
 *.egg
+.venv*/
+.pytest_cache/
+.coverage
+MUJOCO_LOG.TXT
 
 # IDE
 .vscode/

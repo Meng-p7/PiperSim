@@ -4,19 +4,23 @@
   <name>piper_mujoco</name>
   <version>0.1.0</version>
   <description>MuJoCo simulation package for Piper robot arm</description>
-  <maintainer email="your_email@example.com">Your Name</maintainer>
+  <maintainer email="dream@example.com">Dream</maintainer>
   <license>MIT</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
-  <buildtool_depend>ament_cmake_python</buildtool_depend>
 
+  <exec_depend>ament_index_python</exec_depend>
   <exec_depend>ros2_control</exec_depend>
   <exec_depend>controller_manager</exec_depend>
   <exec_depend>joint_state_broadcaster</exec_depend>
   <exec_depend>joint_trajectory_controller</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>mujoco_ros2_control</exec_depend>
   <exec_depend>robot_state_publisher</exec_depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>piper_description</exec_depend>
-  <exec_depend>piper_moveit_config</exec_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

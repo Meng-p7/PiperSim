@@ -7,7 +7,6 @@ endif()
 
 # ── Dependencies ──────────────────────────────────────────────────────────────
 find_package(ament_cmake REQUIRED)
-find_package(ament_cmake_python REQUIRED)
 find_package(hardware_interface REQUIRED)
 find_package(pluginlib REQUIRED)
 find_package(rclcpp REQUIRED)
@@ -38,20 +37,12 @@ install(
 )
 install(DIRECTORY include/ DESTINATION include)
 
-# ── Python package ────────────────────────────────────────────────────────────
-ament_python_install_package(${PROJECT_NAME}
-  PACKAGE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/${PROJECT_NAME}
-)
-
 # ── Data files ────────────────────────────────────────────────────────────────
 install(FILES piper_control_hardware.xml
   DESTINATION share/${PROJECT_NAME}
 )
-install(DIRECTORY config launch scripts
+install(DIRECTORY config scripts
   DESTINATION share/${PROJECT_NAME}
-)
-install(FILES resource/${PROJECT_NAME}
-  DESTINATION share/ament_index/resource_index/packages
 )
 
 # ── ament exports ─────────────────────────────────────────────────────────────

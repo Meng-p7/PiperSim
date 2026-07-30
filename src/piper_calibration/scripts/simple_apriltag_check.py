@@ -4,9 +4,8 @@ AprilTag 检测脚本（带窗口显示）
 用于确认标定板类型和检测效果
 
 用法:
-  source /opt/ros/humble/setup.bash
-  source ~/PiperSim/install/setup.bash
-  python3 simple_apriltag_check.py
+  source ./start_real.sh
+  python3 src/piper_calibration/scripts/simple_apriltag_check.py
 
 操作:
   - 将 AprilTag 放在相机视野内
@@ -15,7 +14,6 @@ AprilTag 检测脚本（带窗口显示）
   - 按 'Q' 退出
 """
 import cv2
-import cv2.aruco as aruco
 import numpy as np
 import rclpy
 from rclpy.node import Node
@@ -53,7 +51,11 @@ class SimpleAprilTagCheck(Node):
         self.dist_coeffs = None
 
         # 检测参数（优化以提高检测率）
-        self.detector_params = cv2.aruco.DetectorParameters()
+        self.detector_params = (
+            cv2.aruco.DetectorParameters()
+            if hasattr(cv2.aruco, "DetectorParameters")
+            else cv2.aruco.DetectorParameters_create()
+        )
         # 角点细化
         self.detector_params.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX
         self.detector_params.cornerRefinementWinSize = 5
@@ -97,7 +99,16 @@ class SimpleAprilTagCheck(Node):
     def _create_detector(self, dict_name):
         """创建ArucoDetector"""
         aruco_dict = cv2.aruco.getPredefinedDictionary(self.dictionaries[dict_name])
-        return cv2.aruco.ArucoDetector(aruco_dict, self.detector_params)
+        if hasattr(cv2.aruco, "ArucoDetector"):
+            return cv2.aruco.ArucoDetector(aruco_dict, self.detector_params)
+        return aruco_dict
+
+    def _detect_markers(self, gray):
+        if hasattr(self.detector, "detectMarkers"):
+            return self.detector.detectMarkers(gray)
+        return cv2.aruco.detectMarkers(
+            gray, self.detector, parameters=self.detector_params
+        )
 
     def callback(self, image_msg, camera_info_msg):
         try:
@@ -113,7 +124,7 @@ class SimpleAprilTagCheck(Node):
             dict_name = self.dict_names[self.current_dict_idx]
 
             # 检测（使用ArucoDetector）
-            marker_corners, marker_ids, rejected = self.detector.detectMarkers(gray)
+            marker_corners, marker_ids, rejected = self._detect_markers(gray)
 
             # 显示信息
             result = frame.copy()
@@ -197,7 +208,8 @@ def main(args=None):
     finally:
         cv2.destroyAllWindows()
         checker.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == '__main__':

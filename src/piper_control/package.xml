@@ -3,30 +3,16 @@
   <name>piper_control</name>
   <version>0.1.0</version>
   <description>Piper real robot control bridge for ROS2 + MoveIt (ros2_control hardware interface)</description>
-  <maintainer email="user@example.com">user</maintainer>
+  <maintainer email="dream@example.com">Dream</maintainer>
   <license>MIT</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
-  <buildtool_depend>ament_cmake_python</buildtool_depend>
 
   <!-- C++ dependencies (hardware interface plugin) -->
   <depend>hardware_interface</depend>
   <depend>pluginlib</depend>
   <depend>rclcpp</depend>
   <depend>rclcpp_lifecycle</depend>
-
-  <!-- Python dependencies (launch files, calibration) -->
-  <exec_depend>rclpy</exec_depend>
-  <exec_depend>sensor_msgs</exec_depend>
-  <exec_depend>std_msgs</exec_depend>
-  <exec_depend>trajectory_msgs</exec_depend>
-  <exec_depend>control_msgs</exec_depend>
-  <exec_depend>tf2_ros</exec_depend>
-  <exec_depend>piper_description</exec_depend>
-  <exec_depend>controller_manager</exec_depend>
-  <exec_depend>joint_state_broadcaster</exec_depend>
-  <exec_depend>joint_trajectory_controller</exec_depend>
-  <exec_depend>ros2launch</exec_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

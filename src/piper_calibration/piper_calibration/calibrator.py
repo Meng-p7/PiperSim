@@ -1,22 +1,11 @@
+"""Eye-to-hand calibration solver for a fixed external camera."""
+
 import os
-import yaml
-import numpy as np
+
 import cv2
-import rclpy
+import numpy as np
+import yaml
 from rclpy.node import Node
-from geometry_msgs.msg import TransformStamped
-from tf2_ros.static_transform_broadcaster import StaticTransformBroadcaster
-
-
-def _quaternion_from_matrix(T: np.ndarray):
-    w = np.sqrt(max(0, 1 + T[0,0] + T[1,1] + T[2,2])) / 2
-    x = np.sqrt(max(0, 1 + T[0,0] - T[1,1] - T[2,2])) / 2
-    y = np.sqrt(max(0, 1 - T[0,0] + T[1,1] - T[2,2])) / 2
-    z = np.sqrt(max(0, 1 - T[0,0] - T[1,1] + T[2,2])) / 2
-    x = np.copysign(x, T[2,1] - T[1,2])
-    y = np.copysign(y, T[0,2] - T[2,0])
-    z = np.copysign(z, T[1,0] - T[0,1])
-    return np.array([x, y, z, w])
 
 
 _METHOD_MAP = {
@@ -26,154 +15,202 @@ _METHOD_MAP = {
     "andreff": cv2.CALIB_HAND_EYE_ANDREFF,
     "daniilidis": cv2.CALIB_HAND_EYE_DANIILIDIS,
 }
+_MIN_ROTATION_DEG = 5.0
 
 
-class HandEyeCalibrator:
-    def __init__(self, node: Node, method: str = "park", eye_mode: str = "eye_in_hand"):
+def _require_hand_eye_api():
+    if not hasattr(cv2, "calibrateHandEye"):
+        raise RuntimeError(
+            "This OpenCV build does not provide cv2.calibrateHandEye. "
+            "Use the ROS/Ubuntu system Python and install python3-opencv; "
+            "remove any user-site OpenCV wheel that shadows it."
+        )
+
+
+class EyeToHandCalibrator:
+    """Solve ``T_base_camera`` from robot poses and target observations.
+
+    For every sample the calibration target is rigidly attached to the robot:
+
+        T_base_gripper * T_gripper_target
+          = T_base_camera * T_camera_target
+
+    OpenCV's hand-eye solver is used with only the robot pose inverted. The
+    returned matrix is the camera pose expressed in ``base_frame``.
+    """
+
+    def __init__(self, node: Node, method: str = "park"):
+        if method not in _METHOD_MAP:
+            raise ValueError(f"method must be one of {list(_METHOD_MAP)}")
+        _require_hand_eye_api()
         self.node = node
         self.method = method
-        self.eye_mode = eye_mode
         self.robot_poses: list[np.ndarray] = []
         self.camera_poses: list[np.ndarray] = []
         self.result: np.ndarray | None = None
+        self.error: float | None = None
 
-        if eye_mode not in ("eye_in_hand", "eye_to_hand"):
-            raise ValueError("eye_mode must be 'eye_in_hand' or 'eye_to_hand'")
-        if method not in _METHOD_MAP:
-            raise ValueError(f"method must be one of {list(_METHOD_MAP.keys())}")
-
-        self._tf_broadcaster = StaticTransformBroadcaster(node)
-
-    def add_sample(self, robot_pose: np.ndarray, camera_pose: np.ndarray):
+    def add_sample(self, T_base_gripper: np.ndarray, T_camera_target: np.ndarray):
+        robot_pose = self._validated_transform(
+            "T_base_gripper", T_base_gripper
+        )
+        camera_pose = self._validated_transform(
+            "T_camera_target", T_camera_target
+        )
         self.robot_poses.append(robot_pose)
         self.camera_poses.append(camera_pose)
 
-    def clear(self):
-        self.robot_poses.clear()
-        self.camera_poses.clear()
+    @staticmethod
+    def _validated_transform(name: str, value: np.ndarray) -> np.ndarray:
+        transform = np.asarray(value, dtype=float)
+        if transform.shape != (4, 4):
+            raise ValueError(f"{name} must be a 4x4 matrix")
+        if not np.isfinite(transform).all():
+            raise ValueError(f"{name} contains NaN or infinity")
+        if not np.allclose(transform[3], [0.0, 0.0, 0.0, 1.0], atol=1e-6):
+            raise ValueError(f"{name} has an invalid homogeneous bottom row")
+
+        rotation = transform[:3, :3]
+        orthogonality_error = np.linalg.norm(
+            rotation.T @ rotation - np.eye(3), "fro"
+        )
+        determinant = float(np.linalg.det(rotation))
+        if orthogonality_error > 1e-3 or not np.isclose(
+            determinant, 1.0, atol=1e-3
+        ):
+            raise ValueError(
+                f"{name} rotation is invalid "
+                f"(orthogonality error={orthogonality_error:.3g}, "
+                f"det={determinant:.6g})"
+            )
+        return transform.copy()
 
     @property
     def num_samples(self) -> int:
         return len(self.robot_poses)
 
     def calibrate(self) -> tuple[np.ndarray, float]:
-        n = len(self.robot_poses)
-        if n < 3:
-            raise ValueError(f"Need at least 3 samples, got {n}")
+        if self.num_samples < 3:
+            raise ValueError(f"Need at least 3 samples, got {self.num_samples}")
+        _require_hand_eye_api()
+        self._validate_motion_diversity()
 
-        if self.eye_mode == "eye_in_hand":
-            R_gripper2base = [p[:3, :3] for p in self.robot_poses]
-            t_gripper2base = [p[:3, 3] for p in self.robot_poses]
-            R_target2cam = [p[:3, :3] for p in self.camera_poses]
-            t_target2cam = [p[:3, 3] for p in self.camera_poses]
-        else:
-            R_gripper2base = [p[:3, :3].T for p in self.robot_poses]
-            t_gripper2base = [-p[:3, :3].T @ p[:3, 3] for p in self.robot_poses]
-            R_target2cam = [p[:3, :3].T for p in self.camera_poses]
-            t_target2cam = [-p[:3, :3].T @ p[:3, 3] for p in self.camera_poses]
+        T_gripper_base = [np.linalg.inv(T) for T in self.robot_poses]
+        R_gripper2base = [T[:3, :3] for T in T_gripper_base]
+        t_gripper2base = [T[:3, 3] for T in T_gripper_base]
+        R_target2cam = [T[:3, :3] for T in self.camera_poses]
+        t_target2cam = [T[:3, 3] for T in self.camera_poses]
 
         self._log_diagnostic()
-
-        cv_method = _METHOD_MAP[self.method]
-        R_cam2gripper, t_cam2gripper = cv2.calibrateHandEye(
-            R_gripper2base, t_gripper2base,
-            R_target2cam, t_target2cam,
-            method=cv_method,
+        R_base_camera, t_base_camera = cv2.calibrateHandEye(
+            R_gripper2base,
+            t_gripper2base,
+            R_target2cam,
+            t_target2cam,
+            method=_METHOD_MAP[self.method],
         )
 
-        U, S, Vt = np.linalg.svd(R_cam2gripper)
+        U, _, Vt = np.linalg.svd(R_base_camera)
         R_fixed = U @ Vt
         if np.linalg.det(R_fixed) < 0:
             Vt[-1, :] *= -1
             R_fixed = U @ Vt
 
-        T_result = np.eye(4)
-        T_result[:3, :3] = R_fixed
-        T_result[:3, 3] = t_cam2gripper.flatten()
-
-        error = self._compute_error(T_result)
-        self.result = T_result
-
+        self.result = np.eye(4)
+        self.result[:3, :3] = R_fixed
+        self.result[:3, 3] = np.asarray(t_base_camera).reshape(3)
+        if not np.isfinite(self.result).all():
+            raise ValueError("Hand-eye solver returned NaN or infinity")
+        self.error = self._compute_motion_residual(self.result)
+        if not np.isfinite(self.error):
+            raise ValueError("Calibration residual is NaN or infinity")
         self.node.get_logger().info(
-            f"Calibration done [{self.method}/{self.eye_mode}] error: {error:.8f}"
+            f"Eye-to-hand calibration done [{self.method}], "
+            f"motion residual={self.error:.8f}"
         )
-        return T_result, error
+        return self.result.copy(), self.error
+
+    @staticmethod
+    def _maximum_relative_rotation_deg(poses: list[np.ndarray]) -> float:
+        maximum = 0.0
+        for i in range(len(poses) - 1):
+            for j in range(i + 1, len(poses)):
+                relative = np.linalg.inv(poses[i]) @ poses[j]
+                angle = np.degrees(
+                    np.linalg.norm(cv2.Rodrigues(relative[:3, :3])[0])
+                )
+                maximum = max(maximum, float(angle))
+        return maximum
+
+    def _validate_motion_diversity(self):
+        robot_rotation = self._maximum_relative_rotation_deg(self.robot_poses)
+        camera_rotation = self._maximum_relative_rotation_deg(self.camera_poses)
+        if (
+            robot_rotation < _MIN_ROTATION_DEG
+            or camera_rotation < _MIN_ROTATION_DEG
+        ):
+            raise ValueError(
+                "Calibration poses do not contain enough rotational diversity: "
+                f"robot={robot_rotation:.2f}deg, "
+                f"target={camera_rotation:.2f}deg; move the wrist through at "
+                f"least {_MIN_ROTATION_DEG:.0f}deg between distinct poses"
+            )
+
+    def _relative_motion_pairs(self):
+        for i in range(self.num_samples - 1):
+            A = self.robot_poses[i + 1] @ np.linalg.inv(self.robot_poses[i])
+            B = self.camera_poses[i + 1] @ np.linalg.inv(self.camera_poses[i])
+            yield i, A, B
 
     def _log_diagnostic(self):
         self.node.get_logger().info("Relative rotation diagnostics:")
-        for i in range(len(self.robot_poses) - 1):
-            A = np.linalg.inv(self.robot_poses[i]) @ self.robot_poses[i + 1]
-            B = self.camera_poses[i] @ np.linalg.inv(self.camera_poses[i + 1])
-            ra = cv2.Rodrigues(A[:3, :3])[0]
-            rb = cv2.Rodrigues(B[:3, :3])[0]
-            angle_a = np.degrees(np.linalg.norm(ra))
-            angle_b = np.degrees(np.linalg.norm(rb))
+        for i, A, B in self._relative_motion_pairs():
+            robot_angle = np.degrees(np.linalg.norm(cv2.Rodrigues(A[:3, :3])[0]))
+            camera_angle = np.degrees(np.linalg.norm(cv2.Rodrigues(B[:3, :3])[0]))
             self.node.get_logger().info(
-                f"  pair {i}->{i+1}: robot rot {angle_a:.2f}deg | camera rot {angle_b:.2f}deg"
+                f"  pair {i}->{i + 1}: robot={robot_angle:.2f}deg, "
+                f"camera={camera_angle:.2f}deg"
             )
 
-    def _compute_error(self, T_x: np.ndarray) -> float:
-        X = T_x.copy()
-        errors = []
-        for i in range(len(self.robot_poses) - 1):
-            if self.eye_mode == "eye_in_hand":
-                A = np.linalg.inv(self.robot_poses[i]) @ self.robot_poses[i + 1]
-                B = self.camera_poses[i] @ np.linalg.inv(self.camera_poses[i + 1])
-            else:
-                A = self.robot_poses[i] @ np.linalg.inv(self.robot_poses[i + 1])
-                B = np.linalg.inv(self.camera_poses[i]) @ self.camera_poses[i + 1]
-            residual = A @ X - X @ B
-            errors.append(np.linalg.norm(residual, "fro"))
-        return float(np.mean(errors))
+    def _compute_motion_residual(self, T_base_camera: np.ndarray) -> float:
+        residuals = [
+            np.linalg.norm(A @ T_base_camera - T_base_camera @ B, "fro")
+            for _, A, B in self._relative_motion_pairs()
+        ]
+        return float(np.mean(residuals))
 
-    def publish_tf(self, parent_frame: str, child_frame: str):
+    def result_dict(self, parent_frame: str, child_frame: str) -> dict:
         if self.result is None:
             raise ValueError("Run calibrate() first")
-        t = TransformStamped()
-        t.header.stamp = self.node.get_clock().now().to_msg()
-        t.header.frame_id = parent_frame
-        t.child_frame_id = child_frame
-        t.transform.translation.x = float(self.result[0, 3])
-        t.transform.translation.y = float(self.result[1, 3])
-        t.transform.translation.z = float(self.result[2, 3])
-        q = _quaternion_from_matrix(self.result)
-        t.transform.rotation.x = float(q[0])
-        t.transform.rotation.y = float(q[1])
-        t.transform.rotation.z = float(q[2])
-        t.transform.rotation.w = float(q[3])
-        self._tf_broadcaster.sendTransform(t)
-        self.node.get_logger().info(
-            f"Published static TF: {parent_frame} -> {child_frame}"
-        )
-
-    def save_result(self, filepath: str):
-        if self.result is None:
-            raise ValueError("Run calibrate() first")
-        data = {
+        return {
+            "schema_version": 2,
+            "calibration_type": "eye_to_hand",
             "method": self.method,
-            "eye_mode": self.eye_mode,
-            "num_samples": len(self.robot_poses),
-            "error": float(self._compute_error(self.result)),
+            "num_samples": self.num_samples,
+            "motion_residual": float(self.error),
+            "transform": {
+                "parent_frame": parent_frame,
+                "child_frame": child_frame,
+                "meaning": f"T_{parent_frame}_{child_frame}",
+            },
             "translation": {
                 "x": float(self.result[0, 3]),
                 "y": float(self.result[1, 3]),
                 "z": float(self.result[2, 3]),
+                "unit": "m",
             },
             "rotation_matrix": self.result[:3, :3].tolist(),
+            "matrix_4x4": self.result.tolist(),
         }
-        os.makedirs(os.path.dirname(filepath) or ".", exist_ok=True)
-        with open(filepath, "w") as f:
-            yaml.dump(data, f, default_flow_style=False)
-        self.node.get_logger().info(f"Result saved to {filepath}")
 
-    def load_result(self, filepath: str) -> np.ndarray:
-        with open(filepath, "r") as f:
-            data = yaml.safe_load(f)
-        T = np.eye(4)
-        T[:3, :3] = np.array(data["rotation_matrix"])
-        T[0, 3] = data["translation"]["x"]
-        T[1, 3] = data["translation"]["y"]
-        T[2, 3] = data["translation"]["z"]
-        self.result = T
-        self.node.get_logger().info(f"Result loaded from {filepath}")
-        return T
+    def save_result(self, filepath: str, parent_frame: str, child_frame: str):
+        os.makedirs(os.path.dirname(filepath) or ".", exist_ok=True)
+        with open(filepath, "w", encoding="utf-8") as f:
+            yaml.safe_dump(
+                self.result_dict(parent_frame, child_frame),
+                f,
+                default_flow_style=False,
+                sort_keys=False,
+                allow_unicode=True,
+            )
+        self.node.get_logger().info(f"Result saved to {filepath}")

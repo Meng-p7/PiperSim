@@ -92,13 +92,6 @@
     <disable_collisions link1="gripper_base_link" link2="right_finger" reason="Adjacent"/>
     <disable_collisions link1="left_finger" link2="right_finger" reason="Default"/>
 
-    <!-- 禁用 table 与所有其他 link 的碰撞 -->
-    <disable_collisions link1="table" link2="link_2" reason="Never"/>
-    <disable_collisions link1="table" link2="link_3" reason="Never"/>
-    <disable_collisions link1="table" link2="link_4" reason="Never"/>
-    <disable_collisions link1="table" link2="link_5" reason="Never"/>
-    <disable_collisions link1="table" link2="link_6" reason="Never"/>
-    <disable_collisions link1="table" link2="gripper_base_link" reason="Never"/>
-    <disable_collisions link1="table" link2="left_finger" reason="Never"/>
-    <disable_collisions link1="table" link2="right_finger" reason="Never"/>
+    <!-- Only the mounted base/first link may overlap the table model. Distal
+         arm and gripper links deliberately keep table collision checking. -->
 </robot>
